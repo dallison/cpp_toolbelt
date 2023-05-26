@@ -307,8 +307,9 @@ absl::Status UnixSocket::SendFds(const std::vector<FileDescriptor> &fds,
   // number we can send in one message.
   size_t remaining_fds = fds.size();
   size_t first_fd = 0;
-
-  while (remaining_fds > 0) {
+ 
+  // We need to send at least one message, even if there are no fds to send.
+  do {
     memset(u.buf, 0, sizeof(u.buf));
 
     int32_t num_fds = static_cast<int32_t>(fds.size());
@@ -341,7 +342,7 @@ absl::Status UnixSocket::SendFds(const std::vector<FileDescriptor> &fds,
     }
     remaining_fds -= fds_to_send;
     first_fd += fds_to_send;
-  }
+  } while (remaining_fds > 0);
   return absl::OkStatus();
 }
 
@@ -382,6 +383,7 @@ absl::Status UnixSocket::ReceiveFds(std::vector<FileDescriptor> &fds,
       return absl::InternalError(
           absl::StrFormat("EOF from socket while reading fds\n"));
     }
+
     struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
     if (cmsg == nullptr) {
       // This can happen, apparently.
