@@ -1,0 +1,39 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "toolbelt",
+    srcs = [
+        "hexdump.cc",
+        "logging.cc",
+        "sockets.cc",
+    ],
+    hdrs = [
+        "bitset.h",
+        "clock.h",
+        "fd.h",
+        "hexdump.h",
+        "logging.h",
+        "mutex.h",
+        "sockets.h",
+    ],
+    deps = [
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@coroutines//:co",
+    ],
+)
+
+cc_test(
+    name = "fd_test",
+    size = "small",
+    srcs = ["fd_test.cc"],
+    deps = [
+        ":toolbelt",
+        "@com_google_absl//absl/hash:hash_testing",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
