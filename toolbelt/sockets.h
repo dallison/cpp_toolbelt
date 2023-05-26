@@ -19,8 +19,6 @@
 
 namespace toolbelt {
 
-static constexpr size_t kMaxMessage = 4096;
-
 // This is an internet protocol address and port.  Used as the
 // endpoint address for all network based sockets.  Only IPv4 is
 // supported for now.
