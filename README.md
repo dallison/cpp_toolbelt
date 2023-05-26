@@ -20,6 +20,9 @@ In addition, the following functions are provided:
 1. Hexdump: dump memory in hex
 2. Now: get the current nanosecond monotonic time.
 
+The Socket classes are coroutine aware and need my
+[coroutine library](https://github.com/dallison/cocpp)
+
 Enjoy!
 
   
