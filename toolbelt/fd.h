@@ -2,8 +2,8 @@
 // All Rights Reserved
 // See LICENSE file for licensing information.
 
-#ifndef __FD_H
-#define __FD_H
+#ifndef __TOOLBELT_FD_H
+#define __TOOLBELT_FD_H
 
 #include <cassert>
 #include <cstdio>
@@ -185,4 +185,4 @@ private:
 };
 
 } // namespace toolbelt
-#endif // __FD_H
+#endif //  __TOOLBELT_FD_H
