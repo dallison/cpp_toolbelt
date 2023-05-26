@@ -2,8 +2,8 @@
 // All Rights Reserved
 // See LICENSE file for licensing information.
 
-#ifndef __SOCKETS_H
-#define __SOCKETS_H
+#ifndef __TOOLBELT_SOCKETS_H
+#define __TOOLBELT_SOCKETS_H
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "fd.h"
@@ -216,4 +216,4 @@ public:
 };
 } // namespace toolbelt
 
-#endif // __SOCKETS_H
+#endif //  __TOOLBELT_SOCKETS_H

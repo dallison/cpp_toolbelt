@@ -2,8 +2,8 @@
 // All Rights Reserved
 // See LICENSE file for licensing information.
 
-#ifndef __HEXDUMP_H
-#define __HEXDUMP_H
+#ifndef __TOOLBELT_HEXDUMP_H
+#define __TOOLBELT_HEXDUMP_H
 
 #include <stddef.h>
 
@@ -13,4 +13,4 @@ namespace toolbelt {
 void Hexdump(const void* addr, size_t length);
 }  // namespace toolbelt
 
-#endif  // __HEXDUMP_H
+#endif  //  __TOOLBELT_HEXDUMP_H

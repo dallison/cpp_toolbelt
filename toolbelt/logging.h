@@ -2,8 +2,8 @@
 // All Rights Reserved
 // See LICENSE file for licensing information.
 
-#ifndef __LOGGING_H
-#define __LOGGING_H
+#ifndef __TOOLBELT_LOGGING_H
+#define __TOOLBELT_LOGGING_H
 
 #include <stdarg.h>
 #include <string>
@@ -91,4 +91,4 @@ private:
 
 } // namespace toolbelt
 
-#endif // __LOGGING_H
+#endif //  __TOOLBELT_LOGGING_H
