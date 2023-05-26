@@ -25,4 +25,39 @@ The Socket classes are coroutine aware and need my
 
 Enjoy!
 
+# Downloading and using the toolbelt
+Add this to your WORKSPACE file to download and use toolbelt:
+
+```
+http_archive(
+  name = "toolbelt",
+  urls = ["https://github.com/dallison/cpp_toolbelt/archive/refs/tags/A.B.C.tar.gz"],
+  strip_prefix = "cpp_toolbelt-A.B.C",
+)
+```
+
+Replacing A.B.C with the version you want (e.g. 1.0.3).
+
+Add a dependency to your BUILD.bazel targets like this:
+
+```
+  deps = [
+      # ...
+      "@toolbelt//toolbelt",
+  ],
+```
+
+
+All the header files are in *toolbelt/*, so for example:
+
+```c++
+#include "toolbelt/fd.h
+```
+
+Then you can use it as:
+
+```c++
+toolbelt::FileDescriptor fd_;
+```
+
   
