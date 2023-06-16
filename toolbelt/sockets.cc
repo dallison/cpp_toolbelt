@@ -229,7 +229,7 @@ static struct sockaddr_un BuildUnixSocketName(const std::string &pathname) {
   struct sockaddr_un addr;
   memset(reinterpret_cast<void *>(&addr), 0, sizeof(addr));
   addr.sun_family = AF_UNIX;
-#ifdef __TOOLBELT_linux__
+#ifdef __linux__
   // On Linux we can create it in the abstract namespace which doesn't
   // consume a pathname.
   addr.sun_path[0] = '\0';
