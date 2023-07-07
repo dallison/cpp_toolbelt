@@ -127,6 +127,13 @@ public:
 
   void Reset() { Close(); }
 
+  // Relinguish ownership of fd.
+  void Release() {
+    data_->fd = -1;
+    delete data_;
+    data_ = nullptr;
+  }
+
   absl::Status SetNonBlocking() {
     if (!Valid()) {
       return absl::InternalError("Cannot set nonblocking on an invalid fd");
