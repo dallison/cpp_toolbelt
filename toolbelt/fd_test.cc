@@ -137,3 +137,19 @@ TEST(FdTest, PassMove) {
   int e = fstat(f, &st);
   ASSERT_EQ(-1, e);
 }
+
+TEST(FdTest, Release) {
+  int f = dup(1);
+  {
+    // Take ownership of f.
+    FileDescriptor fd1(f);
+
+    // Release ownership of f before destructed.
+    fd1.Release();
+  }
+
+  // f will still be be open.
+  struct stat st;
+  int e = fstat(f, &st);
+  ASSERT_EQ(0, e);
+}
