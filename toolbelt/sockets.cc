@@ -96,6 +96,7 @@ static ssize_t ReceiveFully(co::Coroutine *c, int fd, int32_t length,
         // Back to the c->Wait call to wait to try again.
         continue;
       }
+      return -1;
     }
     if (n == 0) {
       // Short read.
@@ -134,6 +135,7 @@ static ssize_t SendFully(co::Coroutine *c, int fd, const char *buffer,
         }
         continue;
       }
+      return -1;
     }
     if (n == 0) {
       // EOF on write.
