@@ -126,6 +126,8 @@ public:
     is_nonblocking_ = true;
     return absl::OkStatus();
   }
+  // Get the fd on which to poll for non-blocking operations.
+  FileDescriptor GetFileDescriptor() const { return fd_; }
 
   bool IsNonBlocking() const { return is_nonblocking_; }
   bool IsBlocking() const { return !is_nonblocking_; }
