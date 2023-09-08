@@ -61,13 +61,13 @@ inline absl::StatusOr<int> BitSet<Size>::Allocate(const std::string &type) {
 template <int Size> inline void BitSet<Size>::Clear(int b) {
   int word = b / kBitsPerWord;
   int bit = b % kBitsPerWord;
-  bits_[word] &= ~(1 << bit);
+  bits_[word] &= ~(1LL << bit);
 }
 
 template <int Size> inline void BitSet<Size>::Set(int b) {
   int word = b / kBitsPerWord;
   int bit = b % kBitsPerWord;
-  bits_[word] |= (1 << bit);
+  bits_[word] |= (1LL << bit);
 }
 
 template <int Size> inline bool BitSet<Size>::IsEmpty() const {
@@ -82,7 +82,7 @@ template <int Size> inline bool BitSet<Size>::IsEmpty() const {
 template <int Size> inline bool BitSet<Size>::IsSet(int b) const {
   int word = b / kBitsPerWord;
   int bit = b % kBitsPerWord;
-  return (bits_[word] & (1 << bit)) != 0;
+  return (bits_[word] & (1LL << bit)) != 0;
 }
 
 } // namespace toolbelt
