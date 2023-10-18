@@ -6,6 +6,7 @@ cc_library(
         "hexdump.cc",
         "logging.cc",
         "sockets.cc",
+        "triggerfd.cc",
     ],
     hdrs = [
         "bitset.h",
@@ -15,6 +16,7 @@ cc_library(
         "logging.h",
         "mutex.h",
         "sockets.h",
+        "triggerfd.h",
     ],
     deps = [
         "@com_google_absl//absl/status",

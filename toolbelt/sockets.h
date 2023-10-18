@@ -6,8 +6,9 @@
 #define __TOOLBELT_SOCKETS_H
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "fd.h"
 #include "coroutine.h"
+#include "fd.h"
+#include <iostream>
 #include <netinet/in.h>
 #include <string>
 #include <sys/poll.h>
@@ -51,6 +52,8 @@ public:
   // Port is in host byte order.
   void SetPort(int port) { addr_.sin_port = htons(port); }
 
+  void SetAddress(const struct sockaddr_in &addr) { addr_ = addr; }
+
   std::string ToString() const;
 
   // Provide support for Abseil hashing.
@@ -81,18 +84,18 @@ public:
   Socket() = default;
   explicit Socket(int fd, bool connected = false)
       : fd_(fd), connected_(connected) {}
-  Socket(const Socket &s) = delete;
+  Socket(const Socket &s) = default;
   Socket(Socket &&s) : fd_(std::move(s.fd_)), connected_(s.connected_) {
     s.connected_ = false;
   }
-  Socket &operator=(const Socket &s) = delete;
+  Socket &operator=(const Socket &s) = default;
   Socket &operator=(Socket &&s) {
     fd_ = std::move(s.fd_);
     connected_ = s.connected_;
     s.connected_ = false;
     return *this;
   }
-  ~Socket() = default;
+  ~Socket() {}
 
   void Close() {
     fd_.Close();
@@ -129,6 +132,8 @@ public:
   // Get the fd on which to poll for non-blocking operations.
   FileDescriptor GetFileDescriptor() const { return fd_; }
 
+  absl::Status SetCloseOnExec() { return fd_.SetCloseOnExec(); }
+
   bool IsNonBlocking() const { return is_nonblocking_; }
   bool IsBlocking() const { return !is_nonblocking_; }
 
@@ -145,6 +150,10 @@ public:
   UnixSocket();
   explicit UnixSocket(int fd, bool connected = false) : Socket(fd, connected) {}
   UnixSocket(UnixSocket &&s) : Socket(std::move(s)) {}
+  UnixSocket(const UnixSocket& s) = default;
+  UnixSocket &operator=(const UnixSocket &s) = default;
+  UnixSocket &operator=(UnixSocket &&s) = default;
+
   ~UnixSocket() = default;
 
   absl::Status Bind(const std::string &pathname, bool listen);
@@ -165,14 +174,19 @@ public:
   NetworkSocket() = default;
   explicit NetworkSocket(int fd, bool connected = false)
       : Socket(fd, connected) {}
-  NetworkSocket(NetworkSocket &&s) : Socket(std::move(s)) {}
+  NetworkSocket(const NetworkSocket &s)
+      : Socket(s), bound_address_(s.bound_address_) {}
+  NetworkSocket(NetworkSocket &&s)
+      : Socket(std::move(s)), bound_address_(std::move(s.bound_address_)) {}
   ~NetworkSocket() = default;
+  NetworkSocket &operator=(const NetworkSocket &s) = default;
 
   absl::Status Connect(const InetAddress &addr);
 
   const InetAddress &BoundAddress() { return bound_address_; }
 
   absl::Status SetReuseAddr();
+  absl::Status SetReusePort();
 
 protected:
   InetAddress bound_address_;
@@ -184,8 +198,10 @@ public:
   UDPSocket();
   explicit UDPSocket(int fd, bool connected = false)
       : NetworkSocket(fd, connected) {}
+  UDPSocket(const UDPSocket &) = default;
   UDPSocket(UDPSocket &&s) : NetworkSocket(std::move(s)) {}
   ~UDPSocket() = default;
+  UDPSocket &operator=(const UDPSocket &s) = default;
 
   absl::Status Bind(const InetAddress &addr);
 
@@ -207,8 +223,10 @@ public:
   TCPSocket();
   explicit TCPSocket(int fd, bool connected = false)
       : NetworkSocket(fd, connected) {}
+  TCPSocket(const TCPSocket &) = default;
   TCPSocket(TCPSocket &&s) : NetworkSocket(std::move(s)) {}
   ~TCPSocket() = default;
+  TCPSocket &operator=(const TCPSocket &s) = default;
 
   absl::Status Bind(const InetAddress &addr, bool listen);
 
