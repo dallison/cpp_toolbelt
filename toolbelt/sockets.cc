@@ -89,6 +89,9 @@ static ssize_t ReceiveFully(co::Coroutine *c, int fd, int32_t length,
     }
     ssize_t n = ::recv(fd, buffer + offset, readlen, 0);
     if (n == -1) {
+      if (errno == EINTR) {
+        continue;
+      }
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
         if (c == nullptr) {
           return -1; // Prevent infinite loop for non-coroutine.
@@ -124,6 +127,9 @@ static ssize_t SendFully(co::Coroutine *c, int fd, const char *buffer,
     }
     ssize_t n = ::send(fd, buffer + offset, remaining, 0);
     if (n == -1) {
+      if (errno == EINTR) {
+        continue;
+      }
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
         if (c == nullptr) {
           return -1; // Prevent infinite loop for non-coroutine.
@@ -309,7 +315,7 @@ absl::Status UnixSocket::SendFds(const std::vector<FileDescriptor> &fds,
   // number we can send in one message.
   size_t remaining_fds = fds.size();
   size_t first_fd = 0;
- 
+
   // We need to send at least one message, even if there are no fds to send.
   do {
     memset(u.buf, 0, sizeof(u.buf));
@@ -364,7 +370,7 @@ absl::Status UnixSocket::ReceiveFds(std::vector<FileDescriptor> &fds,
     // The total number of fds we need to see.  This is
     // sent in each message, but each message contains only portion
     // of the total (there's a limit per message).
-    int32_t total_fds; 
+    int32_t total_fds;
     struct iovec iov = {.iov_base = reinterpret_cast<void *>(&total_fds),
                         .iov_len = sizeof(int32_t)};
 
@@ -434,6 +440,16 @@ absl::Status NetworkSocket::SetReuseAddr() {
   return absl::OkStatus();
 }
 
+absl::Status NetworkSocket::SetReusePort() {
+  int val = 1;
+  int e = setsockopt(fd_.Fd(), SOL_SOCKET, SO_REUSEPORT, &val, sizeof(int));
+  if (e != 0) {
+    return absl::InternalError(absl::StrFormat(
+        "Unable to set SO_REUSEPORT on socket: %s", strerror(errno)));
+  }
+  return absl::OkStatus();
+}
+
 // TCP socket
 TCPSocket::TCPSocket() : NetworkSocket(socket(AF_INET, SOCK_STREAM, 0)) {}
 
@@ -474,12 +490,22 @@ absl::StatusOr<TCPSocket> TCPSocket::Accept(co::Coroutine *c) {
   if (c != nullptr) {
     c->Wait(fd_.Fd(), POLLIN);
   }
-  struct sockaddr_un sender;
+  struct sockaddr_in sender;
   socklen_t sock_len = sizeof(sender);
-  ;
   int new_fd = ::accept(fd_.Fd(), reinterpret_cast<struct sockaddr *>(&sender),
                         &sock_len);
-  return TCPSocket(new_fd, /*connected=*/true);
+  auto new_socket = TCPSocket(new_fd, /*connected=*/true);
+  struct sockaddr_in bound;
+  socklen_t len = sizeof(bound);
+  int e =
+      getsockname(new_fd, reinterpret_cast<struct sockaddr *>(&bound), &len);
+  if (e == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Failed to obtain bound address for accepted socket: %s",
+        strerror(errno)));
+  }
+  new_socket.bound_address_.SetAddress(bound);
+  return new_socket;
 }
 
 // UDP socket

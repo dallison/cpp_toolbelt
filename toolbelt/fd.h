@@ -5,15 +5,16 @@
 #ifndef __TOOLBELT_FD_H
 #define __TOOLBELT_FD_H
 
+#include "absl/status/status.h"
+#include "absl/strings/str_format.h"
 #include <cassert>
+#include <cerrno>
 #include <cstdio>
 #include <fcntl.h>
 #include <sys/poll.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <cerrno>
-#include "absl/status/status.h"
-#include "absl/strings/str_format.h"
+#include <iostream>
 
 namespace toolbelt {
 
@@ -140,16 +141,32 @@ public:
     }
     int flags = fcntl(data_->fd, F_GETFL, 0);
     if (flags == -1) {
-      return absl::InternalError(
-          absl::StrFormat("Failed to set nonblocking mode on fd: %s",
-          strerror(errno)));
+      return absl::InternalError(absl::StrFormat(
+          "Failed to set nonblocking mode on fd: %s", strerror(errno)));
     }
     int e = fcntl(data_->fd, F_SETFL, flags | O_NONBLOCK);
     if (e == -1) {
-      return absl::InternalError(
-          absl::StrFormat("Failed to set nonblocking mode on fd: %s",
-          strerror(errno)));
+      return absl::InternalError(absl::StrFormat(
+          "Failed to set nonblocking mode on fd: %s", strerror(errno)));
     }
+    return absl::OkStatus();
+  }
+
+ absl::Status SetCloseOnExec() {
+    if (!Valid()) {
+      return absl::InternalError("Cannot set close-on-exec on an invalid fd");
+    }
+    int flags = fcntl(data_->fd, F_GETFD, 0);
+    if (flags == -1) {
+      return absl::InternalError(absl::StrFormat(
+          "Failed to set close-on-exec mode on fd: %s", strerror(errno)));
+    }
+    int e = fcntl(data_->fd, F_SETFD, flags | FD_CLOEXEC);
+    if (e == -1) {
+      return absl::InternalError(absl::StrFormat(
+          "Failed to set close-on-exec mode on fd: %s", strerror(errno)));
+    }
+    printf("set fd %d close on exec: %x\n", data_->fd, fcntl(data_->fd, F_GETFD, 0));
     return absl::OkStatus();
   }
 
