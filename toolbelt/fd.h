@@ -11,10 +11,10 @@
 #include <cerrno>
 #include <cstdio>
 #include <fcntl.h>
+#include <iostream>
 #include <sys/poll.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <iostream>
 
 namespace toolbelt {
 
@@ -103,6 +103,13 @@ public:
     return {.fd = data_->fd, .events = POLLIN};
   }
 
+  bool operator==(const FileDescriptor &fd) const {
+    if (!Valid()) {
+      return !fd.Valid();
+    }
+    return Fd() == fd.Fd();
+  }
+
   // True if the FileDescriptor refers to an OS fd.  Doesn't check
   // that the OS fd is actually open, for that use IsOpen().
   bool Valid() const { return data_ != nullptr && data_->fd != -1; }
@@ -130,7 +137,6 @@ public:
 
   // Relinguish ownership of fd.
   void Release() {
-    data_->fd = -1;
     delete data_;
     data_ = nullptr;
   }
@@ -152,7 +158,7 @@ public:
     return absl::OkStatus();
   }
 
- absl::Status SetCloseOnExec() {
+  absl::Status SetCloseOnExec() {
     if (!Valid()) {
       return absl::InternalError("Cannot set close-on-exec on an invalid fd");
     }
@@ -166,7 +172,6 @@ public:
       return absl::InternalError(absl::StrFormat(
           "Failed to set close-on-exec mode on fd: %s", strerror(errno)));
     }
-    printf("set fd %d close on exec: %x\n", data_->fd, fcntl(data_->fd, F_GETFD, 0));
     return absl::OkStatus();
   }
 

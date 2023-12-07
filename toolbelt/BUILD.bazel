@@ -7,6 +7,7 @@ cc_library(
         "logging.cc",
         "sockets.cc",
         "triggerfd.cc",
+        "table.cc",
     ],
     hdrs = [
         "bitset.h",
@@ -17,6 +18,7 @@ cc_library(
         "mutex.h",
         "sockets.h",
         "triggerfd.h",
+        "table.h",
     ],
     deps = [
         "@com_google_absl//absl/status",
@@ -38,4 +40,19 @@ cc_test(
         "@com_google_absl//absl/status:statusor",
         "@com_google_googletest//:gtest_main",
     ],
+)
+
+
+cc_test(
+    name = "table_test",
+    size = "small",
+    srcs = ["table_test.cc"],
+    deps = [
+        ":toolbelt",
+        "@com_google_absl//absl/hash:hash_testing",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_googletest//:gtest_main",
+         "@com_google_absl//absl/strings:str_format",
+   ],
 )
