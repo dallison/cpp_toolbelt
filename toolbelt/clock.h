@@ -17,6 +17,7 @@ namespace toolbelt {
 namespace {
 mach_timebase_info_data_t timebase;
 bool timebase_set = false;
+uint64_t current_timebase;
 } // namespace
 #endif
 
@@ -25,9 +26,15 @@ inline uint64_t Now() {
 #if defined(__APPLE__)
   if (!timebase_set) {
     mach_timebase_info(&timebase);
+    struct timespec tp;
+    clock_gettime(CLOCK_REALTIME, &tp);
+    current_timebase = (static_cast<uint64_t>(tp.tv_sec) * 1000000000LL +
+                        static_cast<uint64_t>(tp.tv_nsec)) -
+                       mach_absolute_time() * timebase.numer / timebase.denom;
     timebase_set = true;
   }
-  return mach_absolute_time() * timebase.numer / timebase.denom;
+  return current_timebase +
+         mach_absolute_time() * timebase.numer / timebase.denom;
 #else
   struct timespec tp;
   clock_gettime(CLOCK_MONOTONIC, &tp);

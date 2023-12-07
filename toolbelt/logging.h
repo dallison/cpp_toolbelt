@@ -34,6 +34,8 @@ public:
   virtual void Log(LogLevel level, const char *fmt, ...);
   virtual void VLog(LogLevel level, const char *fmt, va_list ap);
 
+  virtual void Log(LogLevel level, uint64_t timestamp, const std::string& source, std::string text);
+
   // All logged messages with a level below the min level will be
   // ignored.
   void SetLogLevel(LogLevel l) { min_level_ = l; }

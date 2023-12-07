@@ -99,4 +99,31 @@ void Logger::VLog(LogLevel level, const char *fmt, va_list ap) {
     abort();
   }
 }
+
+ void Logger::Log(LogLevel level, uint64_t timestamp, const std::string& source, std::string text) {
+    if (level < min_level_) {
+    return;
+  }
+
+  // Strip final \n if present.  Refactoring from printf can leave
+  // this in place.
+  if (text[text.size()-1] == '\n') {
+    text = text.substr(0, text.size() - 1);
+  }
+
+  char timebuf[64];
+  struct tm tm;
+  time_t secs = timestamp / 1000000000LL;
+  size_t n = strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S",
+                      localtime_r(&secs, &tm));
+  snprintf(timebuf + n, sizeof(timebuf) - n, ".%09" PRIu64, timestamp % 1000000000);
+
+  ForegroundColor color = ColorForLogLevel(level);
+  fprintf(output_stream_, "%s%s: %s: %s: %s%s\n", ColorString(color).c_str(), timebuf,
+          LogLevelAsString(level), source.c_str(), text.c_str(), NormalString().c_str());
+  if (level == LogLevel::kFatal) {
+    abort();
+  }
+ }
+
 } // namespace toolbelt
