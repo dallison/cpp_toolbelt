@@ -19,6 +19,33 @@ TEST(FdTest, WithPadding) {
   table.Print(win.ws_col, std::cout);
 }
 
+TEST(FdTest, SortDefault) {
+  Table table({"name", "rank", "serial", "address"});
+
+  struct winsize win;
+  ioctl(0, TIOCGWINSZ, &win); // Might fail.
+
+  table.AddRow({"Bob", "Major", "4321", "there"});
+  table.AddRow({"Zeb", "Captain", "1234", "here"});
+  table.AddRow({"Alex", "Corporal", "43221", "also"});
+  table.Print(win.ws_col, std::cout);
+}
+
+TEST(FdTest, SortNumber) {
+  Table table({"name", "rank", "serial", "address"}, 2,
+              [](const std::string &a, const std::string &b) -> bool {
+                return atoi(a.c_str()) < atoi(b.c_str());
+              });
+
+  struct winsize win;
+  ioctl(0, TIOCGWINSZ, &win); // Might fail.
+
+  table.AddRow({"Bob", "Major", "4321", "there"});
+  table.AddRow({"Zeb", "Captain", "1234", "here"});
+  table.AddRow({"Alex", "Corporal", "43221", "also"});
+  table.Print(win.ws_col, std::cout);
+}
+
 TEST(FdTest, TooWide) {
   Table table({"name", "rank", "serial", "address"});
 
@@ -66,8 +93,7 @@ TEST(FdTest, EightBit) {
   ioctl(0, TIOCGWINSZ, &win); // Might fail.
 
   table.AddRow();
-  table.SetCell(0,
-                Table::MakeCell("navigation", Table::Make8Bit(196)));
+  table.SetCell(0, Table::MakeCell("navigation", Table::Make8Bit(196)));
   table.SetCell(1, Table::MakeCell("online", Table::Make8Bit(82)));
   table.SetCell(2, Table::MakeCell("offline", Table::Make8Bit(33)));
   table.Print(win.ws_col, std::cout);

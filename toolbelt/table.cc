@@ -3,7 +3,10 @@
 #include <iomanip>
 
 namespace toolbelt {
-Table::Table(const std::vector<std::string> titles) {
+Table::Table(
+    const std::vector<std::string> titles, ssize_t sort_column,
+    std::function<bool(const std::string &, const std::string &)> comp) {
+  SortBy(sort_column, comp);
   for (auto &title : titles) {
     cols_.push_back({.title = title});
   }
@@ -117,6 +120,7 @@ void Table::Render(int width) {
     col.width = max_widths[index] + padding;
     index++;
   }
+  Sort();
 }
 
 std::string Table::SetColor(const Color &c) {
@@ -144,4 +148,39 @@ std::string Table::SetColor(const Color &c) {
 }
 
 const char *Table::ResetColor() { return "\033[0m"; }
+
+void Table::Sort() {
+  if (sort_column_ == -1 || sort_column_ >= cols_.size()) {
+    return;
+  }
+  struct Index {
+    size_t row;
+    std::string data;
+  };
+  std::vector<Index> index(num_rows_);
+  for (size_t i = 0; i < num_rows_; i++) {
+    index[i] = {.row = i, .data = cols_[sort_column_].cells[i].data};
+  }
+  std::sort(index.begin(), index.end(), [this](const Index &a, const Index &b) {
+    return sorter_(a.data, b.data);
+  });
+  // Now we have the index in the correct order, reorder the table cells.
+  // We do this my moving all the cells into a new vector of columns in
+  // the order specified by the index.  We then use the sorted vector
+  // as the new columns in the table.
+  std::vector<Column> sorted;
+  sorted.reserve(cols_.size());
+  for (auto& col : cols_) {
+    sorted.push_back({.title = col.title, .width = col.width});
+  }
+  for (auto& i : index) {
+    // i.row contains the row number for the next row to be inserted
+    // into the new sorted table.
+    for (size_t col = 0; col < cols_.size(); col++) {
+      sorted[col].cells.push_back(std::move(cols_[col].cells[i.row]));
+    }
+  }
+  cols_ = std::move(sorted);
+}
+
 } // namespace toolbelt
