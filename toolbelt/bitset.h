@@ -36,8 +36,8 @@ public:
   bool IsSet(int b) const;
 
 private:
-  static constexpr size_t kBitsPerWord = sizeof(long long) * 8;
-  static constexpr size_t kNumWords = Size / kBitsPerWord;
+  static constexpr std::size_t kBitsPerWord = sizeof(long long) * 8;
+  static constexpr std::size_t kNumWords = Size / kBitsPerWord;
 
   // Note the use of explicit long long type here because
   // we use ffsll to look for the set bits and that is
@@ -51,7 +51,7 @@ inline absl::StatusOr<int> BitSet<Size>::Allocate(const std::string &type) {
     int bit = ffsll(~bits_[i]);
     if (bit != 0) {
       bits_[i] |= (1LL << (bit - 1));
-      return i * kBitsPerWord + (bit - 1);
+      return static_cast<int>(i * kBitsPerWord + (bit - 1));
     }
   }
   return absl::InternalError(
