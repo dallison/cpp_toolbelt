@@ -78,7 +78,7 @@ std::string InetAddress::ToString() const {
   return absl::StrFormat("%s:%d", buf, ntohs(addr_.sin_port));
 }
 
-static ssize_t ReceiveFully(co::Coroutine *c, int fd, int32_t length,
+static ssize_t ReceiveFully(co::Coroutine *c, int fd, size_t length,
                             char *buffer, size_t buflen) {
   int offset = 0;
   size_t remaining = length;
@@ -194,7 +194,6 @@ absl::StatusOr<ssize_t> Socket::ReceiveMessage(char *buffer, size_t buflen,
   //
   // This is because if we receive more than the message length we will
   // be receiving data from the next message on the socket.
-  int32_t length;
   char lenbuf[4];
   ssize_t n =
       ReceiveFully(c, fd_.Fd(), sizeof(int32_t), lenbuf, sizeof(lenbuf));
@@ -202,7 +201,7 @@ absl::StatusOr<ssize_t> Socket::ReceiveMessage(char *buffer, size_t buflen,
     return absl::InternalError(absl::StrFormat(
         "Failed to read length from socket %d: %s", fd_.Fd(), strerror(errno)));
   }
-  length = ntohl(*reinterpret_cast<int32_t *>(lenbuf));
+  size_t length = ntohl(*reinterpret_cast<int32_t *>(lenbuf));
   n = ReceiveFully(c, fd_.Fd(), length, buffer, buflen);
   if (n == -1) {
     return absl::InternalError(absl::StrFormat(
@@ -455,10 +454,10 @@ TCPSocket::TCPSocket() : NetworkSocket(socket(AF_INET, SOCK_STREAM, 0)) {}
 
 absl::Status TCPSocket::Bind(const InetAddress &addr, bool listen) {
   bool binding_to_zero = addr.Port() == 0;
-  int e =
+  int bind_err =
       ::bind(fd_.Fd(), reinterpret_cast<const sockaddr *>(&addr.GetAddress()),
              addr.GetLength());
-  if (e == -1) {
+  if (bind_err == -1) {
     fd_.Reset();
     return absl::InternalError(
         absl::StrFormat("Failed to bind TCP socket to %s: %s",
@@ -468,9 +467,9 @@ absl::Status TCPSocket::Bind(const InetAddress &addr, bool listen) {
   if (binding_to_zero) {
     struct sockaddr_in bound;
     socklen_t len = sizeof(bound);
-    int e = getsockname(fd_.Fd(), reinterpret_cast<struct sockaddr *>(&bound),
+    int name_err = getsockname(fd_.Fd(), reinterpret_cast<struct sockaddr *>(&bound),
                         &len);
-    if (e == -1) {
+    if (name_err == -1) {
       return absl::InternalError(
           absl::StrFormat("Failed to obtain bound address for %s: %s",
                           addr.ToString().c_str(), strerror(errno)));
