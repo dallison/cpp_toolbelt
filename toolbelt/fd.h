@@ -194,7 +194,7 @@ private:
   // same OS fd (that would be a mistake but there's no way to stop it).
   struct SharedData {
     SharedData() = default;
-    SharedData(int fd_) : ref(1), fd(fd_) {}
+    SharedData(int f) : ref(1), fd(f) {}
     ~SharedData() {
       if (fd != -1) {
         ::close(fd);
