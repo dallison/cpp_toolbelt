@@ -103,7 +103,7 @@ static ssize_t ReceiveFully(co::Coroutine *c, int fd, int32_t length,
     }
     if (n == 0) {
       // Short read.
-      return -1;
+      return 0;
     }
     remaining -= n;
     offset += n;
@@ -199,6 +199,9 @@ absl::StatusOr<ssize_t> Socket::ReceiveMessage(char *buffer, size_t buflen,
   ssize_t n =
       ReceiveFully(c, fd_.Fd(), sizeof(int32_t), lenbuf, sizeof(lenbuf));
   if (n != sizeof(lenbuf)) {
+    if (n == 0) {
+      return absl::InternalError(absl::StrFormat("Failed to read socket %d: socket closed", fd_.Fd()));
+    }
     return absl::InternalError(absl::StrFormat(
         "Failed to read length from socket %d: %s", fd_.Fd(), strerror(errno)));
   }

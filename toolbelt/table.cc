@@ -1,3 +1,7 @@
+// Copyright 2023 David Allison
+// All Rights Reserved
+// See LICENSE file for licensing information.
+
 #include "toolbelt/table.h"
 #include "absl/strings/str_format.h"
 #include <iomanip>
@@ -22,14 +26,14 @@ void Table::AddRow() {
 }
 
 void Table::AddRow(const std::vector<std::string> cells) {
-  AddRow(cells, {.mod = kNormal});
+  AddRow(cells, {.mod = color::kNormal});
 }
 
 void Table::SetCell(size_t col, Cell &&cell) {
   cols_[col].cells[num_rows_ - 1] = std::move(cell);
 }
 
-void Table::AddRow(const std::vector<std::string> cells, Color color) {
+void Table::AddRow(const std::vector<std::string> cells, color::Color color) {
   size_t index = 0;
   for (auto &cell : cells) {
     if (index >= cols_.size()) {
@@ -83,8 +87,9 @@ void Table::Print(int width, std::ostream &os) {
         // Truncate if too wide.
         data = data.substr(0, col.width - 1);
       }
-      os << std::left << SetColor(col.cells[i].color) << std::setw(col.width)
-         << std::setfill(' ') << data << ResetColor();
+      os << std::left << color::SetColor(col.cells[i].color)
+         << std::setw(col.width) << std::setfill(' ') << data
+         << color::ResetColor();
     }
     os << std::endl;
   }
@@ -123,32 +128,6 @@ void Table::Render(int width) {
   Sort();
 }
 
-std::string Table::SetColor(const Color &c) {
-  if (c.fixed != FixedColor::kNotSet) {
-    const char *mod = "";
-    if ((c.mod & kBold) != 0) {
-      mod = ";1";
-    }
-    int color_code = (((c.mod & kBackground) != 0) ? 40 : 30) + int(c.fixed);
-    return absl::StrFormat("\033[%d%sm", color_code, mod);
-  }
-
-  if ((c.mod & k8bit) != 0) {
-    int color_code = (((c.mod & kBackground) != 0) ? 48 : 38);
-    return absl::StrFormat("\033[%d;5;%dm", color_code, c.eight);
-  }
-
-  // RGB color.
-  if ((c.mod & kRGB) != 0) {
-    int color_code = (((c.mod & kBackground) != 0) ? 48 : 38);
-    return absl::StrFormat("\033[%d;2;%d;%d;%dm", color_code, c.r, c.g, c.b);
-  }
-
-  return "";
-}
-
-const char *Table::ResetColor() { return "\033[0m"; }
-
 void Table::Sort() {
   if (sort_column_ == -1 || sort_column_ >= cols_.size()) {
     return;
@@ -170,10 +149,10 @@ void Table::Sort() {
   // as the new columns in the table.
   std::vector<Column> sorted;
   sorted.reserve(cols_.size());
-  for (auto& col : cols_) {
+  for (auto &col : cols_) {
     sorted.push_back({.title = col.title, .width = col.width});
   }
-  for (auto& i : index) {
+  for (auto &i : index) {
     // i.row contains the row number for the next row to be inserted
     // into the new sorted table.
     for (size_t col = 0; col < cols_.size(); col++) {

@@ -8,6 +8,7 @@
 #include <stdarg.h>
 #include <string>
 #include <unistd.h>
+#include "toolbelt/color.h"
 
 namespace toolbelt {
 
@@ -26,8 +27,12 @@ enum class LogLevel {
 class Logger {
 public:
   Logger() = default;
+  Logger(const std::string& subsystem, bool enabled = true) : subsystem_(subsystem), enabled_(enabled) {}
   Logger(LogLevel min) : min_level_(min) {}
   virtual ~Logger() = default;
+
+  void Enable() { enabled_ = true; }
+  void Disable() { enabled_ = false; }
 
   // Log a message at the given log level.  If standard error is a TTY
   // it will be in color.
@@ -67,24 +72,14 @@ public:
   }
 
 private:
-  enum ForegroundColor {
-    kBlack = 30,
-    kRed,
-    kGreen,
-    kYellow,
-    kBlue,
-    kMagenta,
-    kCyan,
-    kWhite,
-    kNormal = 39,
-  };
-
   static constexpr size_t kBufferSize = 256;
 
-  static ForegroundColor ColorForLogLevel(LogLevel level);
-  std::string ColorString(ForegroundColor color);
+  static color::Color ColorForLogLevel(LogLevel level);
+  std::string ColorString(color::Color color);
   std::string NormalString();
 
+  std::string subsystem_;
+  bool enabled_ = true;
   char buffer_[kBufferSize];
   LogLevel min_level_ = LogLevel::kInfo;
   FILE* output_stream_ = stderr;

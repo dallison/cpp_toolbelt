@@ -13,10 +13,14 @@
 #include <fcntl.h>
 #include <iostream>
 #include <sys/poll.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 namespace toolbelt {
+
+// Close all open file descriptor for which the predicate returns true.
+void CloseAllFds(std::function<bool(int)> predicate);
 
 // This represents an open file descriptor.   It counts references to the
 // OS fd and closes when all references have gone away.
@@ -137,6 +141,9 @@ public:
 
   // Relinguish ownership of fd.
   void Release() {
+    if (data_ != nullptr) {
+      data_->fd = -1;
+    }
     delete data_;
     data_ = nullptr;
   }
