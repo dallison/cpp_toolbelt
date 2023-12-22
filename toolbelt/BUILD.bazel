@@ -3,22 +3,27 @@ package(default_visibility = ["//visibility:public"])
 cc_library(
     name = "toolbelt",
     srcs = [
+        "color.cc",
+        "fd.cc",
         "hexdump.cc",
         "logging.cc",
+        "pipe.cc",
         "sockets.cc",
-        "triggerfd.cc",
         "table.cc",
+        "triggerfd.cc",
     ],
     hdrs = [
         "bitset.h",
         "clock.h",
+        "color.h",
         "fd.h",
         "hexdump.h",
         "logging.h",
         "mutex.h",
+        "pipe.h",
         "sockets.h",
-        "triggerfd.h",
         "table.h",
+        "triggerfd.h",
     ],
     deps = [
         "@com_google_absl//absl/status",
@@ -42,7 +47,6 @@ cc_test(
     ],
 )
 
-
 cc_test(
     name = "table_test",
     size = "small",
@@ -52,7 +56,7 @@ cc_test(
         "@com_google_absl//absl/hash:hash_testing",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_googletest//:gtest_main",
-         "@com_google_absl//absl/strings:str_format",
-   ],
+    ],
 )

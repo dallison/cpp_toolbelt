@@ -28,40 +28,40 @@ static const char *LogLevelAsString(LogLevel level) {
   return "U";
 }
 
-Logger::ForegroundColor Logger::ColorForLogLevel(LogLevel level) {
+color::Color Logger::ColorForLogLevel(LogLevel level) {
   switch (level) {
   case LogLevel::kVerboseDebug:
-    return kBlue;
+    return color::BoldBlue();
   case LogLevel::kDebug:
-    return kGreen;
+    return color::BoldGreen();
   case LogLevel::kInfo:
-    return kNormal;
+    return color::BoldNormal();
   case LogLevel::kWarning:
-    return kMagenta;
+    return color::BoldMagenta();
   case LogLevel::kError:
-    return kRed;
+    return color::BoldRed();
   case LogLevel::kFatal:
-    return kRed;
+    return color::BoldRed();
   }
-  return kCyan;
+  return color::BoldCyan();
 }
 
-std::string Logger::ColorString(ForegroundColor color) {
+std::string Logger::ColorString(color::Color color) {
   if (!in_color_) {
     return "";
   }
-  return absl::StrFormat("\033[%d;1m", color);
+  return color::SetColor(color);
 }
 
 std::string Logger::NormalString() {
   if (!in_color_) {
     return "";
   }
-  return absl::StrFormat("\033[39;0m");
+  return color::ResetColor();
 }
 
 void Logger::Log(LogLevel level, const char *fmt, ...) {
-  if (level < min_level_) {
+  if (!enabled_ || level < min_level_) {
     return;
   }
   va_list ap;
@@ -78,8 +78,8 @@ void Logger::VLog(LogLevel level, const char *fmt, va_list ap) {
 
   // Strip final \n if present.  Refactoring from printf can leave
   // this in place.
-  if (buffer_[n-1] == '\n') {
-    buffer_[n-1] = '\0';
+  if (buffer_[n - 1] == '\n') {
+    buffer_[n - 1] = '\0';
   }
 
   struct timespec now_ts;
@@ -89,25 +89,28 @@ void Logger::VLog(LogLevel level, const char *fmt, va_list ap) {
   char timebuf[64];
   struct tm tm;
   n = strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S",
-                      localtime_r(&now_ts.tv_sec, &tm));
-  snprintf(timebuf + n, sizeof(timebuf) - n, ".%09" PRIu64, now_ns % 1000000000);
+               localtime_r(&now_ts.tv_sec, &tm));
+  snprintf(timebuf + n, sizeof(timebuf) - n, ".%09" PRIu64,
+           now_ns % 1000000000);
 
-  ForegroundColor color = ColorForLogLevel(level);
-  fprintf(output_stream_, "%s%s: %s: %s%s\n", ColorString(color).c_str(), timebuf,
-          LogLevelAsString(level), buffer_, NormalString().c_str());
+  color::Color color = ColorForLogLevel(level);
+  fprintf(output_stream_, "%s%s %s: %s: %s%s\n", ColorString(color).c_str(),
+          timebuf, subsystem_.c_str(), LogLevelAsString(level), buffer_,
+          NormalString().c_str());
   if (level == LogLevel::kFatal) {
     abort();
   }
 }
 
- void Logger::Log(LogLevel level, uint64_t timestamp, const std::string& source, std::string text) {
-    if (level < min_level_) {
+void Logger::Log(LogLevel level, uint64_t timestamp, const std::string &source,
+                 std::string text) {
+  if (!enabled_ || level < min_level_) {
     return;
   }
 
   // Strip final \n if present.  Refactoring from printf can leave
   // this in place.
-  if (text[text.size()-1] == '\n') {
+  if (text[text.size() - 1] == '\n') {
     text = text.substr(0, text.size() - 1);
   }
 
@@ -116,14 +119,16 @@ void Logger::VLog(LogLevel level, const char *fmt, va_list ap) {
   time_t secs = timestamp / 1000000000LL;
   size_t n = strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S",
                       localtime_r(&secs, &tm));
-  snprintf(timebuf + n, sizeof(timebuf) - n, ".%09" PRIu64, timestamp % 1000000000);
+  snprintf(timebuf + n, sizeof(timebuf) - n, ".%09" PRIu64,
+           timestamp % 1000000000);
 
-  ForegroundColor color = ColorForLogLevel(level);
-  fprintf(output_stream_, "%s%s: %s: %s: %s%s\n", ColorString(color).c_str(), timebuf,
-          LogLevelAsString(level), source.c_str(), text.c_str(), NormalString().c_str());
+  color::Color color = ColorForLogLevel(level);
+  fprintf(output_stream_, "%s%s %s: %s: %s: %s%s\n", ColorString(color).c_str(),
+          timebuf, subsystem_.c_str(), LogLevelAsString(level), source.c_str(),
+          text.c_str(), NormalString().c_str());
   if (level == LogLevel::kFatal) {
     abort();
   }
- }
+}
 
 } // namespace toolbelt

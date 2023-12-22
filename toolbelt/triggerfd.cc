@@ -13,6 +13,24 @@
 #endif
 
 namespace toolbelt {
+
+absl::StatusOr<TriggerFd> TriggerFd::Create() {
+  TriggerFd t;
+  if (absl::Status status = t.Open(); !status.ok()) {
+    return status;
+  }
+  return t;
+}
+
+absl::StatusOr<TriggerFd> TriggerFd::Create(const FileDescriptor &poll_fd,
+                                            const FileDescriptor &trigger_fd) {
+  TriggerFd t(poll_fd, trigger_fd);
+  if (absl::Status status = t.Open(); !status.ok()) {
+    return status;
+  }
+  return t;
+}
+
 absl::Status TriggerFd::Open() {
 #if defined(__linux__)
   int fd = eventfd(0, EFD_NONBLOCK);
@@ -37,8 +55,8 @@ absl::Status TriggerFd::Open() {
     return absl::InternalError(absl::StrFormat(
         "Unable to set non-blocking on write pipe: %s", strerror(errno)));
   }
-  poll_fd_.SetFd(pipes[0]);     // Read end
-  trigger_fd_.SetFd(pipes[1]);  // Write end.
+  poll_fd_.SetFd(pipes[0]);    // Read end
+  trigger_fd_.SetFd(pipes[1]); // Write end.
 #endif
   return absl::OkStatus();
 }
@@ -74,4 +92,4 @@ void TriggerFd::Clear() {
 #endif
 }
 
-}  // namespace subspace
+} // namespace toolbelt

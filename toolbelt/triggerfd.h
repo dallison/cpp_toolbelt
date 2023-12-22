@@ -6,6 +6,7 @@
 #define __TOOLBELT_TRIGGERFD_H
 
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "toolbelt/fd.h"
 
 namespace toolbelt {
@@ -37,6 +38,9 @@ class TriggerFd {
   ~TriggerFd() = default;
 
   absl::Status Open();
+
+  static absl::StatusOr<TriggerFd> Create();
+  static absl::StatusOr<TriggerFd> Create(const FileDescriptor& poll_fd, const FileDescriptor& trigger_fd);
 
   void Close() {
     poll_fd_.Close();

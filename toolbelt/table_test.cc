@@ -1,3 +1,7 @@
+// Copyright 2023 David Allison
+// All Rights Reserved
+// See LICENSE file for licensing information.
+
 #include "absl/strings/str_format.h"
 #include "toolbelt/table.h"
 #include <gtest/gtest.h>
@@ -7,6 +11,7 @@
 #include <termios.h>
 
 using Table = toolbelt::Table;
+namespace color = toolbelt::color;
 
 TEST(FdTest, WithPadding) {
   Table table({"name", "rank", "serial", "address"});
@@ -61,11 +66,11 @@ TEST(FdTest, Colors) {
   ioctl(0, TIOCGWINSZ, &win); // Might fail.
 
   table.AddRow();
-  table.SetCell(0, Table::MakeCell("navigation", Table::BoldMagenta()));
-  table.SetCell(1, Table::MakeCell("online", Table::Green()));
-  table.SetCell(2, Table::MakeCell("offline", Table::BoldRed()));
+  table.SetCell(0, Table::MakeCell("navigation", color::BoldMagenta()));
+  table.SetCell(1, Table::MakeCell("online", color::Green()));
+  table.SetCell(2, Table::MakeCell("offline", color::BoldRed()));
 
-  table.AddRow({"localization", "offline", "broken"}, Table::BoldCyan());
+  table.AddRow({"localization", "offline", "broken"}, color::BoldCyan());
   table.Print(win.ws_col, std::cout);
 }
 
@@ -79,9 +84,9 @@ TEST(FdTest, RGB) {
 
   table.AddRow();
   table.SetCell(0,
-                Table::MakeCell("navigation", Table::MakeRGB(128, 128, 128)));
-  table.SetCell(1, Table::MakeCell("online", Table::MakeRGB(0, 200, 0)));
-  table.SetCell(2, Table::MakeCell("offline", Table::MakeRGB(1, 1, 128)));
+                Table::MakeCell("navigation", color::MakeRGB(128, 128, 128)));
+  table.SetCell(1, Table::MakeCell("online", color::MakeRGB(0, 200, 0)));
+  table.SetCell(2, Table::MakeCell("offline", color::MakeRGB(1, 1, 128)));
   table.Print(win.ws_col, std::cout);
 }
 
@@ -93,8 +98,8 @@ TEST(FdTest, EightBit) {
   ioctl(0, TIOCGWINSZ, &win); // Might fail.
 
   table.AddRow();
-  table.SetCell(0, Table::MakeCell("navigation", Table::Make8Bit(196)));
-  table.SetCell(1, Table::MakeCell("online", Table::Make8Bit(82)));
-  table.SetCell(2, Table::MakeCell("offline", Table::Make8Bit(33)));
+  table.SetCell(0, Table::MakeCell("navigation", color::Make8Bit(196)));
+  table.SetCell(1, Table::MakeCell("online", color::Make8Bit(82)));
+  table.SetCell(2, Table::MakeCell("offline", color::Make8Bit(33)));
   table.Print(win.ws_col, std::cout);
 }

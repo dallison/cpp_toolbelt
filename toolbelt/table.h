@@ -1,4 +1,10 @@
+// Copyright 2023 David Allison
+// All Rights Reserved
+// See LICENSE file for licensing information.
+
 #pragma once
+
+#include "toolbelt/color.h"
 
 #include <functional>
 #include <iostream>
@@ -9,42 +15,9 @@ namespace toolbelt {
 
 class Table {
 public:
-  enum class FixedColor {
-    kNotSet = -1,
-    kBlack = 0,
-    kRed,
-    kGreen,
-    kBlue,
-    kYellow,
-    kMagenta,
-    kCyan,
-    kWhite,
-  };
-
-  using Modifier = int;
-  static constexpr Modifier kNormal = 0;
-  static constexpr Modifier kBold = 1;
-  static constexpr Modifier kBackground = 2;
-  static constexpr Modifier kRGB = 8;
-  static constexpr Modifier k8bit = 16;
-
-  struct Color {
-    Modifier mod = kNormal;
-    FixedColor fixed = FixedColor::kNotSet;
-
-    // Your terminal might not support this.
-    int eight; // 8-bit color for k8bit.
-
-    // If fixed is kNotSet, these are RGB values for the color.
-    // Your terminal may not support this.
-    int r;
-    int g;
-    int b;
-  };
-
   struct Cell {
     std::string data;
-    Color color;
+    color::Color color;
   };
 
   Table(const std::vector<std::string> titles, ssize_t sort_column = 0,
@@ -53,7 +26,7 @@ public:
   ~Table();
 
   void AddRow(const std::vector<std::string> cells);
-  void AddRow(const std::vector<std::string> cells, Color color);
+  void AddRow(const std::vector<std::string> cells, color::Color color);
   void AddRowWithColors(const std::vector<Cell> cells);
   void AddRow();
   void SetCell(size_t col, Cell &&cell);
@@ -80,47 +53,11 @@ public:
   // Sort data using the column.  Comparison is done by string comparison.
   void SortBy(size_t column) { SortBy(column, nullptr); }
 
-  static Color MakeFixedColor(FixedColor color, Modifier mod = kNormal) {
-    return Color{.mod = mod, .fixed = color};
-  }
-
-  static Color MakeRGB(int r, int g, int b) {
-    return Color{.mod = kRGB, .r = r, .g = g, .b = b};
-  }
-
-  // See https://en.wikipedia.org/wiki/ANSI_escape_code#8-bit
-  static Color Make8Bit(int x) { return Color{.mod = k8bit, .eight = x}; }
-
   static Cell MakeCell(std::string data,
-                       Color color = {.mod = kNormal,
-                                      .fixed = FixedColor::kNotSet}) {
+                color::Color color = {.mod = color::kNormal,
+                                      .fixed = color::FixedColor::kNotSet}) {
     return Cell({.data = std::move(data), .color = color});
   }
-
-  static Color Black() { return MakeFixedColor(FixedColor::kGreen); }
-  static Color Red() { return MakeFixedColor(FixedColor::kRed); }
-  static Color Green() { return MakeFixedColor(FixedColor::kGreen); }
-  static Color Blue() { return MakeFixedColor(FixedColor::kBlue); }
-  static Color Yellow() { return MakeFixedColor(FixedColor::kYellow); }
-  static Color Magenta() { return MakeFixedColor(FixedColor::kMagenta); }
-  static Color Cyan() { return MakeFixedColor(FixedColor::kCyan); }
-  static Color White() { return MakeFixedColor(FixedColor::kWhite); }
-
-  static Color BoldBlack() { return MakeFixedColor(FixedColor::kGreen, kBold); }
-  static Color BoldRed() { return MakeFixedColor(FixedColor::kRed, kBold); }
-  static Color BoldGreen() { return MakeFixedColor(FixedColor::kGreen, kBold); }
-  static Color BoldBlue() { return MakeFixedColor(FixedColor::kBlue, kBold); }
-  static Color BoldYellow() {
-    return MakeFixedColor(FixedColor::kYellow, kBold);
-  }
-  static Color BoldMagenta() {
-    return MakeFixedColor(FixedColor::kMagenta, kBold);
-  }
-  static Color BoldCyan() { return MakeFixedColor(FixedColor::kCyan, kBold); }
-  static Color BoldWhite() { return MakeFixedColor(FixedColor::kWhite, kBold); }
-
-  static std::string SetColor(const Color &c);
-  static const char *ResetColor();
 
 private:
   struct Column {
