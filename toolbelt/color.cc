@@ -13,7 +13,15 @@ std::string SetColor(const Color &c) {
     if ((c.mod & kBold) != 0) {
       mod = ";1";
     }
-    int color_code = (((c.mod & kBackground) != 0) ? 40 : 30) + int(c.fixed);
+    int fg_base = 30;
+    int bg_base = 40;
+    if ((c.mod & kBright) != 0) {
+      fg_base = 90;
+      bg_base = 100;
+    }
+
+    int color_code =
+        (((c.mod & kBackground) != 0) ? bg_base : fg_base) + int(c.fixed);
     return absl::StrFormat("\033[%d%sm", color_code, mod);
   }
 
