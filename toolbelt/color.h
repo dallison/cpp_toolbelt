@@ -16,8 +16,8 @@ enum class FixedColor {
   kBlack = 0,
   kRed,
   kGreen,
-  kBlue,
   kYellow,
+  kBlue,
   kMagenta,
   kCyan,
   kWhite,
@@ -32,6 +32,9 @@ static constexpr Modifier kNormal = 0;
 
 // Bold. Looks better on most terminals.
 static constexpr Modifier kBold = 1;
+
+// Bright looks even better, except on light teriminals.
+static constexpr Modifier kBright = 2;
 
 // Set the background color (otherwise the foreground is set)
 static constexpr Modifier kBackground = 64;
@@ -89,6 +92,46 @@ inline Color BoldCyan() { return MakeFixed(FixedColor::kCyan, kBold); }
 inline Color BoldWhite() { return MakeFixed(FixedColor::kWhite, kBold); }
 inline Color BoldNormal() { return MakeFixed(FixedColor::kNormal, kBold); }
 
+inline Color BrightBlack() { return MakeFixed(FixedColor::kGreen, kBright); }
+inline Color BrightRed() { return MakeFixed(FixedColor::kRed, kBright); }
+inline Color BrightGreen() { return MakeFixed(FixedColor::kGreen, kBright); }
+inline Color BrightBlue() { return MakeFixed(FixedColor::kBlue, kBright); }
+inline Color BrightYellow() { return MakeFixed(FixedColor::kYellow, kBright); }
+inline Color BrightMagenta() { return MakeFixed(FixedColor::kMagenta, kBright); }
+inline Color BrightCyan() { return MakeFixed(FixedColor::kCyan, kBright); }
+inline Color BrightWhite() { return MakeFixed(FixedColor::kWhite, kBright); }
+inline Color BrightNormal() { return MakeFixed(FixedColor::kNormal, kBright); }
+
+
+inline Color BackgroundBlack() { return MakeFixed(FixedColor::kGreen, kBackground); }
+inline Color BackgroundRed() { return MakeFixed(FixedColor::kRed, kBackground); }
+inline Color BackgroundGreen() { return MakeFixed(FixedColor::kGreen, kBackground); }
+inline Color BackgroundBlue() { return MakeFixed(FixedColor::kBlue, kBackground); }
+inline Color BackgroundYellow() { return MakeFixed(FixedColor::kYellow, kBackground); }
+inline Color BackgroundMagenta() { return MakeFixed(FixedColor::kMagenta, kBackground); }
+inline Color BackgroundCyan() { return MakeFixed(FixedColor::kCyan, kBackground); }
+inline Color BackgroundWhite() { return MakeFixed(FixedColor::kWhite, kBackground); }
+inline Color BackgroundNormal() { return MakeFixed(FixedColor::kNormal, kBackground); }
+
+inline Color BackgroundBoldBlack() { return MakeFixed(FixedColor::kGreen, kBold|kBackground); }
+inline Color BackgroundBoldRed() { return MakeFixed(FixedColor::kRed, kBold|kBackground); }
+inline Color BackgroundBoldGreen() { return MakeFixed(FixedColor::kGreen, kBold|kBackground); }
+inline Color BackgroundBoldBlue() { return MakeFixed(FixedColor::kBlue, kBold|kBackground); }
+inline Color BackgroundBoldYellow() { return MakeFixed(FixedColor::kYellow, kBold|kBackground); }
+inline Color BackgroundBoldMagenta() { return MakeFixed(FixedColor::kMagenta, kBold|kBackground); }
+inline Color BackgroundBoldCyan() { return MakeFixed(FixedColor::kCyan, kBold|kBackground); }
+inline Color BackgroundBoldWhite() { return MakeFixed(FixedColor::kWhite, kBold|kBackground); }
+inline Color BackgroundBoldNormal() { return MakeFixed(FixedColor::kNormal, kBold|kBackground); }
+
+inline Color BackgroundBrightBlack() { return MakeFixed(FixedColor::kGreen, kBright|kBackground); }
+inline Color BackgroundBrightRed() { return MakeFixed(FixedColor::kRed, kBright|kBackground); }
+inline Color BackgroundBrightGreen() { return MakeFixed(FixedColor::kGreen, kBright|kBackground); }
+inline Color BackgroundBrightBlue() { return MakeFixed(FixedColor::kBlue, kBright|kBackground); }
+inline Color BackgroundBrightYellow() { return MakeFixed(FixedColor::kYellow, kBright|kBackground); }
+inline Color BackgroundBrightMagenta() { return MakeFixed(FixedColor::kMagenta, kBright|kBackground); }
+inline Color BackgroundBrightCyan() { return MakeFixed(FixedColor::kCyan, kBright|kBackground); }
+inline Color BackgroundBrightWhite() { return MakeFixed(FixedColor::kWhite, kBright|kBackground); }
+inline Color BackgroundBrightNormal() { return MakeFixed(FixedColor::kNormal, kBright|kBackground); }
 // String to write to the output to change the color (permanently).  Don't
 // forget to reset it after you are done using ResetColor.
 std::string SetColor(const Color &c);
