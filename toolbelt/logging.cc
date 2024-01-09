@@ -285,6 +285,11 @@ void Logger::LogColumnar(const char *timebuf, LogLevel level,
   }
   for (;;) {
     std::string segment = text.substr(start);
+    // Look for newlines in the segment and split there.
+    size_t newline = segment.find('\n');
+    if (newline != std::string::npos) {
+      segment = segment.substr(0, newline);
+    }
     if (segment.size() > column_widths_[4]) {
       segment = segment.substr(0, column_widths_[4]);
       // Move back to the first space to avoid splitting words.
@@ -300,7 +305,7 @@ void Logger::LogColumnar(const char *timebuf, LogLevel level,
         segment = segment.substr(0, i);
       }
     }
-    // clang-format off=
+    // clang-format off.
     fprintf(output_stream_, "%-*s%s%-*s%s\n", prefix_length,
             first_line ? prefix.c_str() : "",
             color::SetColor(ColorForLogLevel(level)).c_str(), int(column_widths_[4]), segment.c_str(), color::ResetColor().c_str());
@@ -308,6 +313,10 @@ void Logger::LogColumnar(const char *timebuf, LogLevel level,
     start += segment.size();
     if (start >= text.size()) {
       break;
+    }
+    // Skip newlines at the end of the segment.
+    while (start < text.size() && text[start] == '\n') {
+      start++;
     }
     first_line = false;
     // Skip spaces for continuation line.
