@@ -35,7 +35,7 @@ void Table::AddRow(const std::vector<std::string> cells, Color color) {
     if (index >= cols_.size()) {
       break;
     }
-    AddCell(index, {.color = color, .data = cell});
+    AddCell(index, {.data = cell, .color = color});
     index++;
   }
   ++num_rows_;
