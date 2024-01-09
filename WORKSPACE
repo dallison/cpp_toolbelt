@@ -27,13 +27,14 @@ http_archive(
   name = "com_google_googletest",
   urls = ["https://github.com/google/googletest/archive/5ab508a01f9eb089207ee87fd547d290da39d015.zip"],
   strip_prefix = "googletest-5ab508a01f9eb089207ee87fd547d290da39d015",
+  sha256 = "755f9a39bc7205f5a0c428e920ddad092c33c8a1b46997def3f1d4a82aded6e1",
 )
 
 http_archive(
   name = "coroutines",
-  urls = ["https://github.com/dallison/cocpp/archive/refs/tags/1.2.4.tar.gz"],
-  strip_prefix = "cocpp-1.2.4",
-  sha256 = "b5c877cef99c93d47c7fe52c800ac1629854e31ac5141016f0161d72db59461e"
+  urls = ["https://github.com/dallison/co/archive/refs/tags/1.3.3.tar.gz"],
+  strip_prefix = "co-1.3.3",
+  sha256 = "5c152150ee06213ae2c0af83609d2c5baacb621f857c69dd77c41f0fc453ae32"
 )
 
 
