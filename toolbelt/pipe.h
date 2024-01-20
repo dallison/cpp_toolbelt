@@ -2,7 +2,12 @@
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_format.h"
 #include "toolbelt/fd.h"
+
+#include <errno.h>
+#include <memory>
+#include <unistd.h>
 
 namespace toolbelt {
 
@@ -14,10 +19,10 @@ public:
   Pipe() = default;
   Pipe(int r, int w) : read_(r), write_(w) {}
 
-  Pipe(const Pipe&) = default;
-  Pipe(Pipe&&) = default;
-  Pipe& operator=(const Pipe&) = default;
-  Pipe& operator=(Pipe&&) = default;
+  Pipe(const Pipe &) = default;
+  Pipe(Pipe &&) = default;
+  Pipe &operator=(const Pipe &) = default;
+  Pipe &operator=(Pipe &&) = default;
 
   absl::Status Open();
 
@@ -31,4 +36,74 @@ private:
   FileDescriptor read_;
   FileDescriptor write_;
 };
+
+// A pipe that can you can use to carry a std::shared_ptr.  The pipe
+// takes a reference to the pointer while it's in transit.
+//
+// NB: This can only be used when the sender and receiver are in the same
+// process and will error out if you try to send it across the process
+// boundary.
+template <typename T> class SharedPtrPipe : public Pipe {
+public:
+  static absl::StatusOr<SharedPtrPipe<T>> Create() {
+    SharedPtrPipe p;
+    if (absl::Status status = p.Open(); !status.ok()) {
+      return status;
+    }
+    return p;
+  }
+
+  static absl::StatusOr<SharedPtrPipe<T>> Create(int r, int w) {
+    SharedPtrPipe p(r, w);
+    if (absl::Status status = p.Open(); !status.ok()) {
+      return status;
+    }
+    return p;
+  }
+
+  SharedPtrPipe() : pid_(getpid()) {}
+  SharedPtrPipe(int r, int w) : Pipe(r, w), pid_(getpid()) {}
+
+  absl::StatusOr<std::shared_ptr<T>> Read() {
+    if (pid_ != getpid()) {
+      return absl::InternalError(
+          "SharedPtrPipe can only be used within a single process");
+    }
+    char buffer[sizeof(std::shared_ptr<T>)];
+    ssize_t n = read(ReadFd().Fd(), buffer, sizeof(buffer));
+    if (n <= 0) {
+      return absl::InternalError(
+          absl::StrFormat("Pipe read failed: %s", strerror(errno)));
+    }
+    // Ref count = N + 1.
+    return *reinterpret_cast<std::shared_ptr<T> *>(buffer);
+  }
+
+  // This makes the pipe an owner of the pointer.
+  absl::Status Write(std::shared_ptr<T> p) {
+    if (pid_ != getpid()) {
+      return absl::InternalError(
+          "SharedPtrPipe can only be used within a single process");
+    }
+    // On entry, ref count for p = N
+    char buffer[sizeof(std::shared_ptr<T>)];
+
+    // Assign the pointer to the buffer. This will increment the reference count
+    // but not decrement it when the function returns, thus adding the in-transit
+    // reference.
+    new (buffer) std::shared_ptr<T>(p);
+
+    // Ref count = N+1
+    ssize_t n = write(WriteFd().Fd(), buffer, sizeof(buffer));
+    if (n <= 0) {
+      return absl::InternalError(
+          absl::StrFormat("Pipe write failed: %s", strerror(errno)));
+    }
+    return absl::OkStatus();
+  }
+
+private:
+  int pid_;
+};
+
 } // namespace toolbelt
