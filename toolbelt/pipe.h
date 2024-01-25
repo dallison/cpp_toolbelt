@@ -75,10 +75,6 @@ public:
   SharedPtrPipe(int r, int w) : Pipe(r, w), pid_(getpid()) {}
 
   absl::StatusOr<std::shared_ptr<T>> Read() {
-    if (pid_ != getpid()) {
-      return absl::InternalError(
-          "SharedPtrPipe can only be used within a single process");
-    }
     char buffer[sizeof(std::shared_ptr<T>)];
     ssize_t n = read(ReadFd().Fd(), buffer, sizeof(buffer));
     if (n <= 0) {
@@ -91,10 +87,6 @@ public:
 
   // This makes the pipe an owner of the pointer.
   absl::Status Write(std::shared_ptr<T> p) {
-    if (pid_ != getpid()) {
-      return absl::InternalError(
-          "SharedPtrPipe can only be used within a single process");
-    }
     // On entry, ref count for p = N
     char buffer[sizeof(std::shared_ptr<T>)];
 
@@ -111,9 +103,6 @@ public:
     }
     return absl::OkStatus();
   }
-
-private:
-  int pid_;
 };
 
 } // namespace toolbelt
