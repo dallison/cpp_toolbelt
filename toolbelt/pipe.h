@@ -32,6 +32,16 @@ public:
   void SetReadFd(int fd) { read_.SetFd(fd); }
   void SetWriteFd(int fd) { write_.SetFd(fd); }
 
+  void Close() {
+    read_.Close();
+    write_.Close();
+  }
+
+  void ForceClose() {
+    read_.ForceClose();
+    write_.ForceClose();
+  }
+
 private:
   FileDescriptor read_;
   FileDescriptor write_;
@@ -89,8 +99,8 @@ public:
     char buffer[sizeof(std::shared_ptr<T>)];
 
     // Assign the pointer to the buffer. This will increment the reference count
-    // but not decrement it when the function returns, thus adding the in-transit
-    // reference.
+    // but not decrement it when the function returns, thus adding the
+    // in-transit reference.
     new (buffer) std::shared_ptr<T>(p);
 
     // Ref count = N+1
