@@ -148,6 +148,17 @@ public:
     data_ = nullptr;
   }
 
+  void ForceClose() {
+    if (data_ == nullptr) {
+      return;
+    }
+    if (data_->fd != -1) {
+      close(data_->fd);
+      delete data_;
+      data_ = nullptr;
+    }
+  }
+  
   absl::Status SetNonBlocking() {
     if (!Valid()) {
       return absl::InternalError("Cannot set nonblocking on an invalid fd");
