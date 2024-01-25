@@ -71,8 +71,8 @@ public:
     return p;
   }
 
-  SharedPtrPipe() : pid_(getpid()) {}
-  SharedPtrPipe(int r, int w) : Pipe(r, w), pid_(getpid()) {}
+  SharedPtrPipe() = default;
+  SharedPtrPipe(int r, int w) : Pipe(r, w) {}
 
   absl::StatusOr<std::shared_ptr<T>> Read() {
     char buffer[sizeof(std::shared_ptr<T>)];
