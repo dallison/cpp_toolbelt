@@ -51,7 +51,10 @@ class TriggerFd {
   void SetTriggerFd(FileDescriptor fd) { trigger_fd_ = std::move(fd); }
 
   void Trigger();
-  void Clear();
+
+  // Clears the trigger and simultaneously checks if it was triggered.
+  // Returns true if the triggerfd had been triggered prior to entering this function. 
+  bool Clear();
 
   FileDescriptor &GetPollFd() { return poll_fd_; }
   FileDescriptor &GetTriggerFd() { return trigger_fd_; }
