@@ -73,22 +73,26 @@ void TriggerFd::Trigger() {
 #endif
 }
 
-void TriggerFd::Clear() {
+bool TriggerFd::Clear() {
 #if defined(__linux__)
   // Linux eventfd, read a single 8 byte value.  This will clear the
   // eventfd.
   int64_t val;
-  (void)::read(poll_fd_.Fd(), &val, 8);
+  ssize_t n = ::read(poll_fd_.Fd(), &val, 8);
+  return (n > 0);
 #else
   // Pipe.  Read all bytes from the pipe.  The pipe is nonblocking so we will
   // get an EAGAIN when we've cleared it.
+  bool was_triggered = false;
   for (;;) {
     char buffer[256];
     ssize_t n = ::read(poll_fd_.Fd(), buffer, sizeof(buffer));
     if (n <= 0) {
       break;
     }
+    was_triggered = true;
   }
+  return was_triggered;
 #endif
 }
 
