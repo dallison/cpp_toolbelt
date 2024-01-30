@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <string>
+#include <iostream>
 
 #include "absl/strings/str_format.h"
 #include "hexdump.h"
@@ -26,6 +27,7 @@ InetAddress InetAddress::BroadcastAddress(int port) {
 InetAddress InetAddress::AnyAddress(int port) { return InetAddress(port); }
 
 InetAddress::InetAddress(const in_addr &ip, int port) {
+  valid_ = true;
   addr_ = {
 #if defined(_APPLE__)
     .sin_len = sizeof(int),
@@ -58,6 +60,7 @@ InetAddress::InetAddress(const std::string &hostname, int port) {
     if (inet_pton(AF_INET, hostname.c_str(), &ipaddr) != 1) {
       fprintf(stderr, "Invalid IP address or unknown hostname %s\n",
               hostname.c_str());
+      valid_ = false;
       return;
     }
   }
@@ -419,6 +422,9 @@ absl::Status UnixSocket::ReceiveFds(std::vector<FileDescriptor> &fds,
 absl::Status NetworkSocket::Connect(const InetAddress &addr) {
   if (!fd_.Valid()) {
     return absl::InternalError("Socket is not valid");
+  }
+  if (!addr.Valid()) {
+	return absl::InternalError("Bad InetAddress");
   }
   int e = ::connect(fd_.Fd(),
                     reinterpret_cast<const sockaddr *>(&addr.GetAddress()),
