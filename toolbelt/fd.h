@@ -201,8 +201,8 @@ private:
     assert(data_->ref > 0);
     if (--data_->ref == 0) {
       delete data_;
-      data_ = nullptr;
     }
+    data_ = nullptr;
   }
 
   void IncRef() {

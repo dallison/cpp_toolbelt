@@ -155,3 +155,22 @@ TEST(FdTest, Release) {
   int e = fstat(f, &st);
   ASSERT_EQ(0, e);
 }
+
+TEST(FdTest, Reset) {
+  int f = dup(1);
+  {
+    // Take ownership of f.
+    FileDescriptor fd1(f);
+
+    FileDescriptor fd2(fd1);
+
+    // Reset ownership of f by fd1 before destruction.
+    fd1.Reset();
+  } // If fd1 was correctly reset, this could assert-fail.
+
+  // f will be closed.
+  struct stat st;
+  int e = fstat(f, &st);
+  ASSERT_EQ(-1, e);
+}
+
