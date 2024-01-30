@@ -39,7 +39,7 @@ public:
   InetAddress(const std::string &hostname, int port);
 
   // An address from a pre-constructed socket address in network order.
-  InetAddress(const struct sockaddr_in &addr) : addr_(addr) {}
+  InetAddress(const struct sockaddr_in &addr) : addr_(addr), valid_(true) {}
 
   const sockaddr_in &GetAddress() const { return addr_; }
   socklen_t GetLength() const { return sizeof(addr_); }
