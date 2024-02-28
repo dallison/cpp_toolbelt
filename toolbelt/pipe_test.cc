@@ -35,7 +35,7 @@ TEST(PipeTest, WriteAndRead) {
   ASSERT_TRUE(t2.ok());
 
   auto rt = std::move(*t2);
-  ASSERT_EQ(3, rt.use_count());
+  ASSERT_EQ(2, rt.use_count());
 
   ASSERT_EQ(rt->a, t->a);
   ASSERT_EQ(rt->b, t->b);

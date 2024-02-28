@@ -82,7 +82,10 @@ public:
           absl::StrFormat("Pipe read failed: %s", strerror(errno)));
     }
     // Ref count = N + 1.
-    return *reinterpret_cast<std::shared_ptr<T> *>(buffer);
+    auto copy = *reinterpret_cast<std::shared_ptr<T> *>(buffer);
+    auto *p = reinterpret_cast<std::shared_ptr<T> *>(buffer);
+    p->reset();
+    return copy;
   }
 
   // This makes the pipe an owner of the pointer.
