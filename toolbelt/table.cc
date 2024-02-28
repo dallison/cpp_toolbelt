@@ -62,6 +62,9 @@ void Table::AddCell(size_t col, const Cell &cell) {
 }
 
 void Table::Print(int width, std::ostream &os) {
+  if (width == 0) {
+    width = 80;
+  }
   width -= 1; // Allow space for newline.
 
   // Calculate the widths for each column.

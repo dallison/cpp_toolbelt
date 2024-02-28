@@ -16,7 +16,7 @@ namespace color = toolbelt::color;
 TEST(FdTest, WithPadding) {
   Table table({"name", "rank", "serial", "address"});
 
-  struct winsize win;
+  struct winsize win = {0};
   ioctl(0, TIOCGWINSZ, &win); // Might fail.
 
   table.AddRow({"Dave", "Captain", "1234", "here"});
@@ -27,7 +27,7 @@ TEST(FdTest, WithPadding) {
 TEST(FdTest, SortDefault) {
   Table table({"name", "rank", "serial", "address"});
 
-  struct winsize win;
+  struct winsize win = {0};
   ioctl(0, TIOCGWINSZ, &win); // Might fail.
 
   table.AddRow({"Bob", "Major", "4321", "there"});
@@ -42,7 +42,7 @@ TEST(FdTest, SortNumber) {
                 return atoi(a.c_str()) < atoi(b.c_str());
               });
 
-  struct winsize win;
+  struct winsize win = {0};
   ioctl(0, TIOCGWINSZ, &win); // Might fail.
 
   table.AddRow({"Bob", "Major", "4321", "there"});
@@ -62,7 +62,7 @@ TEST(FdTest, TooWide) {
 TEST(FdTest, Colors) {
   Table table({"subsystem", "admin", "oper"});
 
-  struct winsize win;
+  struct winsize win = {0};
   ioctl(0, TIOCGWINSZ, &win); // Might fail.
 
   table.AddRow();
@@ -79,7 +79,7 @@ TEST(FdTest, Colors) {
 TEST(FdTest, RGB) {
   Table table({"subsystem", "admin", "oper"});
 
-  struct winsize win;
+  struct winsize win = {0};
   ioctl(0, TIOCGWINSZ, &win); // Might fail.
 
   table.AddRow();
@@ -94,7 +94,7 @@ TEST(FdTest, RGB) {
 TEST(FdTest, EightBit) {
   Table table({"subsystem", "admin", "oper"});
 
-  struct winsize win;
+  struct winsize win = {0};
   ioctl(0, TIOCGWINSZ, &win); // Might fail.
 
   table.AddRow();
