@@ -11,6 +11,7 @@
 #include <cerrno>
 #include <cstdio>
 #include <fcntl.h>
+#include <memory>
 #include <iostream>
 #include <sys/poll.h>
 #include <sys/resource.h>
@@ -53,31 +54,23 @@ public:
   FileDescriptor() = default;
   // FileDescriptor initialize with an OS fd.  Takes ownership
   // of the fd and will close it when all references go away.
-  explicit FileDescriptor(int fd) : data_(new SharedData(fd)) {}
+  explicit FileDescriptor(int fd) : data_(std::make_shared<SharedData>(fd)) {}
 
   // Copy constructor, increments reference on shared data.  Very cheap.
-  FileDescriptor(const FileDescriptor &f) : data_(f.data_) { IncRef(); }
+  FileDescriptor(const FileDescriptor &f) : data_(f.data_) {}
 
   // Move constructor, just moves a pointer, also very cheap.
   FileDescriptor(FileDescriptor &&f) : data_(f.data_) { f.data_ = nullptr; }
 
   // Assignment operator.  Copies the pointer and manipulates reference counts.
   FileDescriptor &operator=(const FileDescriptor &f) {
-    if (data_ != f.data_) {
-      DecRef();
-    }
     data_ = f.data_;
-    IncRef();
     return *this;
   }
 
   // Move operator. Just moves the shared data pointer and clears f.
   FileDescriptor &operator=(FileDescriptor &&f) {
-    if (data_ != f.data_) {
-      DecRef();
-    }
-    data_ = f.data_;
-    f.data_ = nullptr;
+    data_ = std::move(f.data_);
     return *this;
   }
 
@@ -85,7 +78,7 @@ public:
   ~FileDescriptor() { Close(); }
 
   // Close the OS fd (and free the shared data) if the references to go 0.
-  void Close() { DecRef(); }
+  void Close() { data_.reset(); }
 
   // Is the OS file descriptor open?
   bool IsOpen() const {
@@ -97,7 +90,7 @@ public:
   bool IsATTY() const { return Valid() && isatty(data_->fd); }
 
   // Current reference count.
-  int RefCount() const { return data_ == nullptr ? 0 : data_->ref; }
+  int RefCount() const { return data_ == nullptr ? 0 : data_.use_count(); }
 
   // Construct and return a struct pollfd suitable for use in ::poll.
   struct pollfd GetPollFd() {
@@ -125,16 +118,12 @@ public:
   // no effect (that's not another reference to it).  Allocates new
   // shared data for the fd.
   void SetFd(int fd) {
-    if (Fd() != fd) {
-      // Changing FD, remove reference to existing.
-      DecRef();
-    }
     if (Fd() == fd) {
       // SetFd with same fd.  This isn't another reference to the
       // fd.
       return;
     }
-    data_ = new SharedData(fd);
+    data_ = std::make_shared<SharedData>(fd);
   }
 
   void Reset() { Close(); }
@@ -144,8 +133,7 @@ public:
     if (data_ != nullptr) {
       data_->fd = -1;
     }
-    delete data_;
-    data_ = nullptr;
+    data_.reset();
   }
 
   void ForceClose() {
@@ -154,11 +142,10 @@ public:
     }
     if (data_->fd != -1) {
       close(data_->fd);
-      delete data_;
-      data_ = nullptr;
+      data_.reset();
     }
   }
-  
+
   absl::Status SetNonBlocking() {
     if (!Valid()) {
       return absl::InternalError("Cannot set nonblocking on an invalid fd");
@@ -194,41 +181,22 @@ public:
   }
 
 private:
-  void DecRef() {
-    if (data_ == nullptr) {
-      return;
-    }
-    assert(data_->ref > 0);
-    if (--data_->ref == 0) {
-      delete data_;
-      data_ = nullptr;
-    }
-  }
-
-  void IncRef() {
-    if (data_ != nullptr) {
-      data_->ref++;
-      assert(data_->ref > 0);
-    }
-  }
-
   // Reference counted OS fd, shared among all FileDescriptors with the
   // same OS fd, provided you don't create two FileDescriptors with the
   // same OS fd (that would be a mistake but there's no way to stop it).
   struct SharedData {
     SharedData() = default;
-    SharedData(int f) : ref(1), fd(f) {}
+    SharedData(int f) : fd(f) {}
     ~SharedData() {
       if (fd != -1) {
         ::close(fd);
       }
     }
-    int ref = 0; // Reference count.
     int fd = -1; // OS file descriptor.
   };
 
   // The actual shared data.  If nullptr the FileDescriptor is invalid.
-  SharedData *data_ = nullptr;
+  std::shared_ptr<SharedData> data_ = nullptr;
 };
 
 } // namespace toolbelt

@@ -549,7 +549,7 @@ absl::Status UDPSocket::SendTo(const InetAddress &addr, const void *buffer,
   if (c != nullptr) {
     c->Wait(fd_.Fd(), POLLOUT);
   }
-  size_t n = ::sendto(fd_.Fd(), buffer, length, 0,
+  ssize_t n = ::sendto(fd_.Fd(), buffer, length, 0,
                       reinterpret_cast<const sockaddr *>(&addr.GetAddress()),
                       addr.GetLength());
   if (n == -1) {
@@ -565,7 +565,7 @@ absl::StatusOr<ssize_t> UDPSocket::Receive(void *buffer, size_t buflen,
   if (c != nullptr) {
     c->Wait(fd_.Fd(), POLLIN);
   }
-  size_t n = recv(fd_.Fd(), buffer, buflen, 0);
+  ssize_t n = recv(fd_.Fd(), buffer, buflen, 0);
   if (n == -1) {
     return absl::InternalError(
         absl::StrFormat("Unable to receive UDP datagram: %s", strerror(errno)));
@@ -581,7 +581,7 @@ absl::StatusOr<ssize_t> UDPSocket::ReceiveFrom(InetAddress &sender,
   struct sockaddr_in sender_addr;
   socklen_t sender_addr_length = sizeof(sender_addr);
 
-  size_t n = recvfrom(fd_.Fd(), buffer, buflen, 0,
+  ssize_t n = recvfrom(fd_.Fd(), buffer, buflen, 0,
                       reinterpret_cast<struct sockaddr *>(&sender_addr),
                       &sender_addr_length);
   if (n == -1) {

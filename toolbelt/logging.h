@@ -40,7 +40,10 @@ enum class LogTheme {
 // logged.
 class Logger {
 public:
-  Logger() = default;
+  Logger() {
+    SetTheme(LogTheme::kDefault);
+    SetDisplayMode(STDIN_FILENO);
+  }
   Logger(const std::string &subsystem, bool enabled = true,
          LogTheme theme = LogTheme::kDefault,
          LogDisplayMode mode = LogDisplayMode::kPlain)
@@ -103,8 +106,8 @@ private:
   // depending on whether the output is a tty or not.
   void SetDisplayMode(int fd);
 
-  void LogColumnar(const char *timebuf, LogLevel level, const std::string &source,
-                   const std::string &text);
+  void LogColumnar(const char *timebuf, LogLevel level,
+                   const std::string &source, const std::string &text);
 
   color::Color ColorForLogLevel(LogLevel level);
   color::Color BackgroundColorForLogLevel(LogLevel level);
@@ -117,9 +120,9 @@ private:
   LogLevel min_level_ = LogLevel::kInfo;
   FILE *output_stream_ = stderr;
   bool in_color_ = isatty(STDERR_FILENO);
-  LogDisplayMode display_mode_;
+  LogDisplayMode display_mode_ = LogDisplayMode::kPlain;
   int screen_width_;
-  LogTheme theme_;
+  LogTheme theme_ = LogTheme::kDefault;
 
   static constexpr int kNumColumns = 5;
   size_t column_widths_[kNumColumns];

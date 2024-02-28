@@ -221,9 +221,12 @@ void Logger::SetDisplayMode(int fd) {
       }
       column_widths_[2] = 3;  // Log level
       column_widths_[3] = 20; // Source
-      size_t remaining = screen_width_;
+      ssize_t remaining = screen_width_;
       for (int i = 0; i < 4; i++) {
         remaining -= column_widths_[i] + 1;
+      }
+      if (remaining < 0) {
+        remaining = 20;
       }
       column_widths_[4] = remaining - 1;
       display_mode_ = LogDisplayMode::kColumnar;
