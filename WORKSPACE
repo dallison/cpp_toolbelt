@@ -32,9 +32,9 @@ http_archive(
 
 http_archive(
   name = "coroutines",
-  urls = ["https://github.com/dallison/co/archive/refs/tags/1.3.5.tar.gz"],
-  strip_prefix = "co-1.3.5",
-  sha256 = "132ec0f47008a10f43dbc3dea6c31db954ea6f808245127e99af80ffebb58768"
+  urls = ["https://github.com/dallison/co/archive/refs/tags/1.3.7.tar.gz"],
+  strip_prefix = "co-1.3.7",
+  sha256 = "709ddaf3d55e6da6e34602e31cdb04b2321013e862fb9bddb6e021e117d35c22"
 )
 
 
