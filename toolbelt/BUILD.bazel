@@ -11,6 +11,7 @@ cc_library(
         "sockets.cc",
         "table.cc",
         "triggerfd.cc",
+        "payload_buffer.cc",
     ],
     hdrs = [
         "bitset.h",
@@ -24,6 +25,7 @@ cc_library(
         "sockets.h",
         "table.h",
         "triggerfd.h",
+        "payload_buffer.h",
     ],
     deps = [
         "@com_google_absl//absl/status",
@@ -73,3 +75,16 @@ cc_test(
         "@com_google_googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "payload_buffer_test",
+    srcs = [
+        "payload_buffer_test.cc",
+    ],
+    deps = [
+        "@com_google_googletest//:gtest",
+        ":toolbelt",
+    ],
+)
+
+
