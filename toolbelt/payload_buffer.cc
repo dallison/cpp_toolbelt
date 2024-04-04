@@ -1,4 +1,5 @@
 #include "toolbelt/payload_buffer.h"
+#include <assert.h>
 
 namespace toolbelt {
 
