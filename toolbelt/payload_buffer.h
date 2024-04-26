@@ -124,6 +124,27 @@ struct PayloadBuffer {
   // Allocate space for the message metadata and copy it in.
   static void AllocateMetadata(PayloadBuffer **self, void *md, size_t size);
 
+  void SetPresenceBit(uint32_t bit, uint32_t offset) {
+    uint32_t word = bit / 32;
+    bit %= 32;
+    uint32_t *p = ToAddress<uint32_t>(offset);
+    p[word] |= (1 << bit);
+  }
+
+  void ClearPresenceBit(uint32_t bit, uint32_t offset) {
+    uint32_t word = bit / 32;
+    bit %= 32;
+    uint32_t *p = ToAddress<uint32_t>(offset);
+    p[word] &= ~(1 << bit);
+  }
+
+  bool IsPresent(uint32_t bit, uint32_t offset) const {
+    uint32_t word = bit / 64;
+    bit %= 64;
+    const uint32_t *p = ToAddress<const uint32_t>(offset);
+    return (p[word] & (1 << bit)) != 0;
+  }
+
   template <typename MessageType>
   static MessageType *NewMessage(PayloadBuffer **self, uint32_t size,
                                  BufferOffset offset);
@@ -146,6 +167,9 @@ struct PayloadBuffer {
     return SetString(self, s.data(), s.size(), header_offset);
   }
 
+ static void ClearString(PayloadBuffer **self,
+                         BufferOffset header_offset);
+
   bool IsNull(BufferOffset offset) {
     BufferOffset *p = ToAddress<BufferOffset>(offset);
     return *p == 0;
@@ -162,6 +186,9 @@ struct PayloadBuffer {
 
   template <typename T>
   static void VectorResize(PayloadBuffer **self, VectorHeader *hdr, size_t n);
+
+  template <typename T>
+  static void VectorClear(PayloadBuffer **self, VectorHeader *hdr);
 
   // 'header_offset' is the offset into the buffer StringHeader.
   std::string GetString(BufferOffset header_offset) const {
@@ -345,6 +372,16 @@ inline void PayloadBuffer::VectorResize(PayloadBuffer **self, VectorHeader *hdr,
 }
 
 template <typename T>
+inline void PayloadBuffer::VectorClear(PayloadBuffer **self,
+                                       VectorHeader *hdr) {
+  if (hdr->data != 0) {
+    (*self)->Free((*self)->ToAddress<void>(hdr->data));
+  }
+  hdr->data = 0;
+  hdr->num_elements = 0;
+}
+
+template <typename T>
 inline T PayloadBuffer::VectorGet(const VectorHeader *hdr, size_t index) const {
   if (index >= hdr->num_elements) {
     return static_cast<T>(0);
@@ -366,3 +403,4 @@ inline MessageType *PayloadBuffer::NewMessage(PayloadBuffer **self,
   return reinterpret_cast<MessageType *>(msg);
 }
 } // namespace toolbelt
+
