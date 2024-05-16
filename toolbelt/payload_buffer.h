@@ -1,5 +1,6 @@
 #pragma once
 
+#include "absl/types/span.h"
 #include <functional>
 #include <iostream>
 #include <stdint.h>
@@ -157,18 +158,23 @@ struct PayloadBuffer {
   static char *SetString(PayloadBuffer **self, const char *s, size_t len,
                          BufferOffset header_offset);
 
-  static char *SetString(PayloadBuffer **self, const std::string &s,
+  template <typename Str>
+  static char *SetString(PayloadBuffer **self, Str s,
                          BufferOffset header_offset) {
     return SetString(self, s.data(), s.size(), header_offset);
   }
 
-  static char *SetString(PayloadBuffer **self, const std::string_view s,
-                         BufferOffset header_offset) {
-    return SetString(self, s.data(), s.size(), header_offset);
+  template <>
+  char *SetString(PayloadBuffer **self, const char *s,
+                  BufferOffset header_offset) {
+    return SetString(self, s, strlen(s), header_offset);
   }
 
- static void ClearString(PayloadBuffer **self,
-                         BufferOffset header_offset);
+  static void ClearString(PayloadBuffer **self, BufferOffset header_offset);
+
+  static absl::Span<char> AllocateString(PayloadBuffer **self, size_t len,
+                                         BufferOffset header_offset,
+                                         bool clear = false);
 
   bool IsNull(BufferOffset offset) {
     BufferOffset *p = ToAddress<BufferOffset>(offset);
@@ -226,30 +232,75 @@ struct PayloadBuffer {
   static void *Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
                        uint32_t alignment, bool clear = true);
 
-  template <typename T = void> T *ToAddress(BufferOffset offset) {
+  bool IsValidMagic() const {
+    return magic == kFixedBufferMagic || magic == kMovableBufferMagic;
+  }
+  bool IsValidAddress(const void *addr, size_t size) const {
+    if (size == 0) {
+      size = full_size;
+    }
+    return addr >= reinterpret_cast<const char *>(this) &&
+           addr < reinterpret_cast<const char *>(this) + size;
+  }
+
+  template <typename T = void>
+  T *ToAddress(BufferOffset offset, size_t size = 0) {
     if (offset == 0) {
       return nullptr;
     }
-    return reinterpret_cast<T *>(reinterpret_cast<char *>(this) + offset);
+    if (!IsValidMagic()) {
+      return nullptr;
+    }
+    // Validate that we don't go outside the buffer.
+    char *addr = reinterpret_cast<char *>(this) + offset;
+    if (!IsValidAddress(addr, size)) {
+      return nullptr;
+    }
+
+    return reinterpret_cast<T *>(addr);
   }
 
-  template <typename T = void> BufferOffset ToOffset(T *addr) {
+  template <typename T = void> BufferOffset ToOffset(T *addr, size_t size = 0) {
     if (addr == reinterpret_cast<T *>(this) || addr == nullptr) {
       return 0;
     }
-    return reinterpret_cast<char *>(addr) - reinterpret_cast<char *>(this);
+    if (!IsValidMagic()) {
+      return 0;
+    }
+    if (!IsValidAddress(addr, size)) {
+      return 0;
+    }
+    return reinterpret_cast<const char *>(addr) -
+           reinterpret_cast<const char *>(this);
   }
 
-  template <typename T = void> const T *ToAddress(BufferOffset offset) const {
+  template <typename T = void>
+  const T *ToAddress(BufferOffset offset, size_t size = 0) const {
     if (offset == 0) {
       return nullptr;
     }
+    if (!IsValidMagic()) {
+      return nullptr;
+    }
+    // Validate that we don't go outside the buffer.
+    const char *addr = reinterpret_cast<const char *>(this) + offset;
+    if (!IsValidAddress(addr, size)) {
+      return nullptr;
+    }
+
     return reinterpret_cast<const T *>(reinterpret_cast<const char *>(this) +
                                        offset);
   }
 
-  template <typename T = void> BufferOffset ToOffset(const T *addr) const {
+  template <typename T = void>
+  BufferOffset ToOffset(const T *addr, size_t size = 0) const {
     if (addr == reinterpret_cast<const T *>(this) || addr == nullptr) {
+      return 0;
+    }
+    if (!IsValidMagic()) {
+      return 0;
+    }
+    if (!IsValidAddress(addr, size)) {
       return 0;
     }
     return reinterpret_cast<const char *>(addr) -
@@ -403,4 +454,3 @@ inline MessageType *PayloadBuffer::NewMessage(PayloadBuffer **self,
   return reinterpret_cast<MessageType *>(msg);
 }
 } // namespace toolbelt
-
