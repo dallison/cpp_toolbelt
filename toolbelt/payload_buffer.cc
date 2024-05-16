@@ -86,6 +86,33 @@ const char *PayloadBuffer::StringData(const StringHeader *addr) const {
   return reinterpret_cast<const char *>(p + 1);
 }
 
+absl::Span<char> PayloadBuffer::AllocateString(PayloadBuffer **self, size_t len, BufferOffset header_offset, bool clear) {
+   // Get address of the string header
+  BufferOffset *hdr = (*self)->ToAddress<BufferOffset>(header_offset);
+  void *str = nullptr;
+
+  // Load the pointer and convert to address.
+  BufferOffset str_ptr = *hdr;
+  void *old_str = (*self)->ToAddress(str_ptr);
+
+  // If this contains a valid (non-zero) offset, reallocate the
+  // data it points to, otherwise allocate new data.
+  if (old_str != nullptr) {
+    str = Realloc(self, old_str, len + 4, 4, clear);
+  } else {
+    str = Allocate(self, len + 4, 4, clear);
+  }
+  uint32_t *p = reinterpret_cast<uint32_t *>(str);
+  p[0] = uint32_t(len);
+
+  // The buffer may have moved.  Reassign the address of the string
+  // back into the header.
+  BufferOffset *oldp = (*self)->ToAddress<BufferOffset>(header_offset);
+  *oldp = (*self)->ToOffset(str);
+  // The span returned is the string data, not the address of the length.
+  return absl::Span<char>(reinterpret_cast<char *>(str) + 4, len);
+}
+
 void PayloadBuffer::Dump(std::ostream &os) {
   os << "PayloadBuffer: " << this << std::endl;
   os << "  magic: " << (magic == kFixedBufferMagic ? "fixed" : "moveable")
@@ -196,6 +223,9 @@ void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
       }
       size_t old_size = (*buffer)->full_size;
       size_t new_size = old_size * 2;
+      while (new_size < full_length) {
+        new_size *= 2;
+      }
 
       // Call the resizer.  This will move *buffer.
       (*resizer)(buffer, new_size);
@@ -212,19 +242,12 @@ void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
         free_block = (*buffer)->ToAddress<FreeBlockHeader>(free_block->next);
       }
 
-      std::cout << "Before adding to free list\n";
-      (*buffer)->Dump(std::cout);
-
       // 'prev' is either nullptr, which means we had no free list, or points
       // to the last free block header in the new buffer.
       // Expand the free list to include the new memory.
       char *start_of_new_memory = reinterpret_cast<char *>(*buffer) + old_size;
-      std::cout << "start of new memory: " << (void *)start_of_new_memory
-                << std::endl;
       bool free_list_expanded = false;
       if (prev != nullptr) {
-        std::cout << "End of prev: " << (void *)((char *)prev + prev->length)
-                  << std::endl;
         char *end_of_free_list = reinterpret_cast<char *>(prev) + prev->length;
         if (start_of_new_memory == end_of_free_list) {
           // Last free block is right at the end of the memory, so edxpand it
@@ -246,8 +269,6 @@ void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
           prev->next = (*buffer)->ToOffset(new_block);
         }
       }
-      std::cout << "After adding to free list\n";
-      (*buffer)->Dump(std::cout);
       return Allocate(buffer, n, alignment, clear);
     }
   }
