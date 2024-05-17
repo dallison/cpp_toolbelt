@@ -1,5 +1,6 @@
 #include "toolbelt/payload_buffer.h"
 #include <assert.h>
+#include <vector>
 
 namespace toolbelt {
 
@@ -44,7 +45,8 @@ char *PayloadBuffer::SetString(PayloadBuffer **self, const char *s, size_t len,
   return reinterpret_cast<char *>(str);
 }
 
-void PayloadBuffer::ClearString(PayloadBuffer **self, BufferOffset header_offset) {
+void PayloadBuffer::ClearString(PayloadBuffer **self,
+                                BufferOffset header_offset) {
   BufferOffset *hdr = (*self)->ToAddress<BufferOffset>(header_offset);
   if (*hdr != 0) {
     (*self)->Free((*self)->ToAddress(*hdr));
@@ -86,8 +88,10 @@ const char *PayloadBuffer::StringData(const StringHeader *addr) const {
   return reinterpret_cast<const char *>(p + 1);
 }
 
-absl::Span<char> PayloadBuffer::AllocateString(PayloadBuffer **self, size_t len, BufferOffset header_offset, bool clear) {
-   // Get address of the string header
+absl::Span<char> PayloadBuffer::AllocateString(PayloadBuffer **self, size_t len,
+                                               BufferOffset header_offset,
+                                               bool clear) {
+  // Get address of the string header
   BufferOffset *hdr = (*self)->ToAddress<BufferOffset>(header_offset);
   void *str = nullptr;
 
@@ -142,7 +146,7 @@ void PayloadBuffer::InitFreeList() {
   size_t header_size = sizeof(PayloadBuffer);
   if (magic == kMovableBufferMagic) {
     end_of_header +=
-        sizeof(Resizer *);  // Room for resizer function for movable buffers.
+        sizeof(Resizer *); // Room for resizer function for movable buffers.
     header_size += sizeof(Resizer *);
   }
   FreeBlockHeader *f = reinterpret_cast<FreeBlockHeader *>(end_of_header);
@@ -193,7 +197,7 @@ inline uint32_t AlignSize(uint32_t s,
 
 void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
                               uint32_t alignment, bool clear) {
-  n = AlignSize(n, alignment);  // Aligned.
+  n = AlignSize(n, alignment); // Aligned.
   size_t full_length = n + sizeof(uint32_t);
   FreeBlockHeader *free_block = (*buffer)->FreeList();
   FreeBlockHeader *prev = nullptr;
@@ -203,8 +207,8 @@ void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
       // header, take the lower part of the free block and keep the remainder
       // in the free list.
       n = (*buffer)->TakeStartOfFreeBlock(free_block, n, full_length, prev);
-      size_t *newblock = (size_t *)free_block;  // Start of new block.
-      *newblock = n;                            // Size of allocated block.
+      size_t *newblock = (size_t *)free_block; // Start of new block.
+      *newblock = n;                           // Size of allocated block.
       void *addr =
           reinterpret_cast<void *>(uintptr_t(free_block) + sizeof(uint32_t));
       if (clear) {
@@ -275,6 +279,32 @@ void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
   return nullptr;
 }
 
+std::vector<void *> PayloadBuffer::AllocateMany(PayloadBuffer **buffer,
+                                                uint32_t size, uint32_t n,
+                                                uint32_t alignment,
+                                                bool clear) {
+  // Calculate space for the whole block.  This is n*aligned(size) + n*sizeof(uint32_t).
+  size_t full_length = n * (AlignSize(size, alignment) + sizeof(uint32_t));
+  void* start = Allocate(buffer, full_length, 8, clear);
+  if (start == nullptr) {
+    return {};    // No memory.
+  }
+  if (clear) {
+    memset(start, 0, full_length);
+  }
+  // Divide the block into freeable chunks, each of which is align(size) bytes
+  // long.  The length of each block is stored immediately before the block.
+  std::vector<void *> blocks;
+  uint32_t* p = reinterpret_cast<uint32_t*>(start);
+  for (uint32_t i = 0; i < n; i++) {
+    uint32_t len = AlignSize(size, alignment);
+    p[0] = len;
+    blocks.push_back(reinterpret_cast<void*>(p + 1));
+    p = reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(p) + len + sizeof(uint32_t));
+  }
+  return blocks;
+}
+
 void PayloadBuffer::MergeWithAboveIfPossible(FreeBlockHeader *alloc_block,
                                              FreeBlockHeader *alloc_header,
                                              FreeBlockHeader *free_block,
@@ -325,7 +355,7 @@ void PayloadBuffer::InsertNewFreeBlockAtEnd(FreeBlockHeader *free_block,
 void PayloadBuffer::Free(void *p) {
   // An allocated block has its length immediately before its address.
   uint32_t alloc_length =
-      *(reinterpret_cast<uint32_t *>(p) - 1);  // Length of allocated block.
+      *(reinterpret_cast<uint32_t *>(p) - 1); // Length of allocated block.
 
   // Point to real start of allocated block.
   FreeBlockHeader *alloc_header =
@@ -389,10 +419,10 @@ void PayloadBuffer::ShrinkBlock(FreeBlockHeader *alloc_block,
   if (rem >= sizeof(FreeBlockHeader)) {
     // If we are freeing enough to make a free block, free it, otherwise
     // there's nothing we can do and we just keep the block the same size.
-    *len_ptr = new_length;  // Change size of block.
+    *len_ptr = new_length; // Change size of block.
     uint32_t *newp = reinterpret_cast<uint32_t *>(
         reinterpret_cast<char *>(alloc_block) + sizeof(uint32_t) + new_length);
-    *newp = rem - sizeof(uint32_t);  // Add header for free.
+    *newp = rem - sizeof(uint32_t); // Add header for free.
     Free(newp + 1);
   }
 }
@@ -460,7 +490,7 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
       reinterpret_cast<FreeBlockHeader *>(uintptr_t(p) - sizeof(uint32_t));
   uintptr_t alloc_addr = (uintptr_t)p;
 
-  n = AlignSize(n);  // Aligned.
+  n = AlignSize(n); // Aligned.
   if (n == orig_length) {
     // Same size as current block, nothing to do.
     return p;
@@ -533,4 +563,4 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
   return newp;
 }
 
-}  // namespace toolbelt
+} // namespace toolbelt
