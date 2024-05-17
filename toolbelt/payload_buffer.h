@@ -232,6 +232,14 @@ struct PayloadBuffer {
   static void *Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
                        uint32_t alignment, bool clear = true);
 
+  // Allocate 'n' items of size 'size' in the buffer.  The buffer might move.
+  // Each allocation is aligned to 'alignment' and is capable of being freed
+  // individually. The addresses of the allocated items are returned in a
+  // vector.
+  static std::vector<void *> AllocateMany(PayloadBuffer **buffer, uint32_t size,
+                                          uint32_t n, uint32_t alignment,
+                                          bool clear = true);
+
   bool IsValidMagic() const {
     return magic == kFixedBufferMagic || magic == kMovableBufferMagic;
   }
@@ -387,7 +395,6 @@ inline void PayloadBuffer::VectorReserve(PayloadBuffer **self,
                                          VectorHeader *hdr, size_t n) {
   if (hdr->data == 0) {
     void *vecp = Allocate(self, n * sizeof(T), 8);
-    std::cout << "empty vector " << vecp << std::endl;
     hdr->data = (*self)->ToOffset(vecp);
   } else {
     // Vector has some values in it.  Retrieve the total size from

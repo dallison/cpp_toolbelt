@@ -1,5 +1,5 @@
-#include "toolbelt/payload_buffer.h"
 #include "toolbelt/hexdump.h"
+#include "toolbelt/payload_buffer.h"
 #include <gtest/gtest.h>
 #include <sstream>
 
@@ -89,6 +89,36 @@ TEST(BufferTest, FreeThenAlloc) {
   pb->Dump(std::cout);
   std::cout << "Allocated " << addr2 << std::endl;
   toolbelt::Hexdump(pb, pb->hwm);
+  free(buffer);
+}
+
+TEST(BufferTest, Many) {
+  constexpr size_t kSize = 8192;
+  char *buffer = (char *)malloc(kSize);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
+
+  std::vector<void *> addrs =
+      PayloadBuffer::AllocateMany(&pb, 100, 10, 8, true);
+  ASSERT_EQ(10, addrs.size());
+  // Print the addresses.
+  for (auto addr : addrs) {
+    std::cout << "Allocated " << addr << std::endl;
+  }
+  pb->Dump(std::cout);
+  toolbelt::Hexdump(pb, pb->hwm);
+
+  // Make sure we can free them.
+  pb->Free(addrs[0]);
+  pb->Free(addrs[2]);
+
+  pb->Dump(std::cout);
+  toolbelt::Hexdump(pb, pb->hwm);
+
+  // Now allocate one more to take the first free block.
+  void *addr = PayloadBuffer::Allocate(&pb, 100, 8);
+  pb->Dump(std::cout);
+  toolbelt::Hexdump(pb, pb->hwm);
+  ASSERT_EQ(addrs[0], addr);
   free(buffer);
 }
 
