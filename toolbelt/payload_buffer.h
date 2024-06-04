@@ -54,7 +54,7 @@ using StringHeader = BufferOffset;
 // is allocated using malloc, the resize would be a simple call
 // to realloc.  However, care must be taken to preserve the
 // contents of the resizer function.
-using Resizer = std::function<void(PayloadBuffer **, size_t new_size)>;
+using Resizer = std::function<void(PayloadBuffer **, size_t old_size, size_t new_size)>;
 
 // This is a buffer that holds the contents of a message.
 // It is located at the first address of the actual buffer with the

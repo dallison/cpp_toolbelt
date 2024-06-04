@@ -201,29 +201,13 @@ void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
   size_t full_length = n + sizeof(uint32_t);
   FreeBlockHeader *free_block = (*buffer)->FreeList();
   FreeBlockHeader *prev = nullptr;
-  while (free_block != nullptr) {
-    if (free_block->length >= full_length) {
-      // Free block is big enough.  If there's enough room for the free block
-      // header, take the lower part of the free block and keep the remainder
-      // in the free list.
-      n = (*buffer)->TakeStartOfFreeBlock(free_block, n, full_length, prev);
-      size_t *newblock = (size_t *)free_block; // Start of new block.
-      *newblock = n;                           // Size of allocated block.
-      void *addr =
-          reinterpret_cast<void *>(uintptr_t(free_block) + sizeof(uint32_t));
-      if (clear) {
-        memset(addr, 0, full_length - 4);
-      }
-      return addr;
-    }
-    prev = free_block;
-    free_block = (*buffer)->ToAddress<FreeBlockHeader>(free_block->next);
+  for (;;) {
     if (free_block == nullptr) {
       // Out of memory.  If we have a resizer we can reallocate the buffer.
       Resizer *resizer = (*buffer)->GetResizer();
       if (resizer == nullptr) {
         // Really out of memory.
-        break;
+        return nullptr;
       }
       size_t old_size = (*buffer)->full_size;
       size_t new_size = old_size * 2;
@@ -232,7 +216,7 @@ void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
       }
 
       // Call the resizer.  This will move *buffer.
-      (*resizer)(buffer, new_size);
+      (*resizer)(buffer, old_size, new_size);
 
       // Set the new size in the newly allocated bigger buffer.
       (*buffer)->full_size = new_size;
@@ -275,19 +259,35 @@ void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
       }
       return Allocate(buffer, n, alignment, clear);
     }
+    if (free_block->length >= full_length) {
+      // Free block is big enough.  If there's enough room for the free block
+      // header, take the lower part of the free block and keep the remainder
+      // in the free list.
+      n = (*buffer)->TakeStartOfFreeBlock(free_block, n, full_length, prev);
+      size_t *newblock = (size_t *)free_block; // Start of new block.
+      *newblock = n;                           // Size of allocated block.
+      void *addr =
+          reinterpret_cast<void *>(uintptr_t(free_block) + sizeof(uint32_t));
+      if (clear) {
+        memset(addr, 0, full_length - 4);
+      }
+      return addr;
+    }
+    prev = free_block;
+    free_block = (*buffer)->ToAddress<FreeBlockHeader>(free_block->next);
   }
-  return nullptr;
 }
 
 std::vector<void *> PayloadBuffer::AllocateMany(PayloadBuffer **buffer,
                                                 uint32_t size, uint32_t n,
                                                 uint32_t alignment,
                                                 bool clear) {
-  // Calculate space for the whole block.  This is n*aligned(size) + n*sizeof(uint32_t).
+  // Calculate space for the whole block.  This is n*aligned(size) +
+  // n*sizeof(uint32_t).
   size_t full_length = n * (AlignSize(size, alignment) + sizeof(uint32_t));
-  void* start = Allocate(buffer, full_length, 8, clear);
+  void *start = Allocate(buffer, full_length, 8, clear);
   if (start == nullptr) {
-    return {};    // No memory.
+    return {}; // No memory.
   }
   if (clear) {
     memset(start, 0, full_length);
@@ -295,12 +295,13 @@ std::vector<void *> PayloadBuffer::AllocateMany(PayloadBuffer **buffer,
   // Divide the block into freeable chunks, each of which is align(size) bytes
   // long.  The length of each block is stored immediately before the block.
   std::vector<void *> blocks;
-  uint32_t* p = reinterpret_cast<uint32_t*>(start);
+  uint32_t *p = reinterpret_cast<uint32_t *>(start);
   for (uint32_t i = 0; i < n; i++) {
     uint32_t len = AlignSize(size, alignment);
     p[0] = len;
-    blocks.push_back(reinterpret_cast<void*>(p + 1));
-    p = reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(p) + len + sizeof(uint32_t));
+    blocks.push_back(reinterpret_cast<void *>(p + 1));
+    p = reinterpret_cast<uint32_t *>(reinterpret_cast<char *>(p) + len +
+                                     sizeof(uint32_t));
   }
   return blocks;
 }
