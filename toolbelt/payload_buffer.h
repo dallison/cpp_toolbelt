@@ -234,12 +234,6 @@ struct PayloadBuffer {
     return SetString(self, s.data(), s.size(), header_offset);
   }
 
-  template <>
-  char *SetString(PayloadBuffer **self, const char *s,
-                  BufferOffset header_offset) {
-    return SetString(self, s, strlen(s), header_offset);
-  }
-
   static void ClearString(PayloadBuffer **self, BufferOffset header_offset);
 
   static absl::Span<char> AllocateString(PayloadBuffer **self, size_t len,
@@ -425,6 +419,13 @@ struct PayloadBuffer {
   static BitMapRun *AllocateBitMapRun(PayloadBuffer **self, uint32_t size,
                                       uint32_t num);
 };
+
+
+template <>
+char *PayloadBuffer::SetString(PayloadBuffer **self, const char *s,
+                BufferOffset header_offset) {
+  return SetString(self, s, strlen(s), header_offset);
+}
 
 template <typename T> inline void PayloadBuffer::Set(BufferOffset offset, T v) {
   T *addr = ToAddress<T>(offset);
