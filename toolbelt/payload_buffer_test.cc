@@ -234,7 +234,7 @@ TEST(BufferTest, Resizeable) {
   char *buffer = (char *)malloc(256);
   bool resized = false;
   PayloadBuffer *pb = new (buffer)
-      PayloadBuffer(256, [&resized](PayloadBuffer **p, size_t new_size) {
+      PayloadBuffer(256, [&resized](PayloadBuffer **p, size_t old_size, size_t new_size) {
         std::cout << "resize for " << new_size << std::endl;
         *p = reinterpret_cast<PayloadBuffer *>(realloc(*p, new_size));
         resized = true;
