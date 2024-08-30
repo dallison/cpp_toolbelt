@@ -54,25 +54,87 @@ using StringHeader = BufferOffset;
 // is allocated using malloc, the resize would be a simple call
 // to realloc.  However, care must be taken to preserve the
 // contents of the resizer function.
-using Resizer = std::function<void(PayloadBuffer **, size_t old_size, size_t new_size)>;
+using Resizer =
+    std::function<void(PayloadBuffer **, size_t old_size, size_t new_size)>;
+
+// BitMap allocator.  In order to reduce fragmentation and speed up allocation
+// of small blocks, we use a bitmap allocator for a fixed number of small block
+// sizes.  Each BitMapRun refers to a run of blocks of the same size.  It
+// contains a bitmap with a bit for each block in the run.  The PayloadBuffer
+// header contains the offset to a vector header that holds vector of offsets to
+// BitMapRun objects.  The index into this vector is stored in the 4 bytes
+// preceding an allocated small block to avoid searching during free.
+
+struct BitMapRun {
+  uint32_t bits;     // Bit per chunk.
+  uint8_t size;      // Size of each chunk.
+  uint8_t num;       // Number of chunks in run.
+  uint8_t free;      // Number of free chunks.
+  // The memory for the run is immediately after the BitMapRun.
+
+  // Allocate a chunk from the run.  If we are out of chunks, a new
+  // run is allocated and the chunk is taken from that.
+  static void *Allocate(PayloadBuffer **pb, int index,
+                        uint32_t n, int size, int num, bool clear = true);
+  static void Free(PayloadBuffer *pb, int index, int bitmap_index, int bitnum);
+};
+
+inline constexpr size_t kNumSmallBlocks = 4;
+
+// Run size for each block size.
+inline constexpr int kRunSize1 = 32;
+inline constexpr int kRunSize2 = 16;
+inline constexpr int kRunSize3 = 8;
+inline constexpr int kRunSize4 = 4;
+
+// Block size for each small block.
+inline constexpr int kSmallBlockSize1 = 16;
+inline constexpr int kSmallBlockSize2 = 32;
+inline constexpr int kSmallBlockSize3 = 64;
+inline constexpr int kSmallBlockSize4 = 128;
+
+// In order to allow free to work without searching, we use the 4 bytes
+// preceding the allocated block in the run to store the size of the block, the
+// index into the BitMapRun vector and the bit number in the bitmap.  In order
+// to distinguish this between small blocks and regular blocks allocated from
+// the free list, we use a negative number (top bit set) containing:
+// 1. Bit 31 set
+// 2. Bits 30-26 (5 bits) contain the bit number into the bitmap.
+// 3. Bits 25-8 (18 bits) contain the index into the vector of bitmap runs.
+// 3. Bits 7-0 (8 bits) contain the size of the block.
+
+// Shifts for size encoding for small blocks.
+inline constexpr int kSmallBlockBitNumShift = 26;
+inline constexpr int kSmallBlockBitMapShift = 8;
+inline constexpr int kSmallBlockSizeShift = 0;
+
+// Masks
+inline constexpr uint32_t kSmallBlockBitNumMask = 0x1f;
+inline constexpr uint32_t kSmallBlockBitMapMask = 0x3ffff;
+inline constexpr uint32_t kSmallBlockSizeMask = 0xff;
+
 
 // This is a buffer that holds the contents of a message.
 // It is located at the first address of the actual buffer with the
 // reset of the buffer memory following it.
 //
 struct PayloadBuffer {
-  uint32_t magic;         // Magic to identify wireformat.
-  BufferOffset message;   // Offset for the message.
-  uint32_t hwm;           // Offset one beyond the highest used.
-  uint32_t full_size;     // Full size of buffer.
-  BufferOffset free_list; // Heap free list.
-  BufferOffset metadata;  // Offset to message metadata.
+  uint32_t magic;                        // Magic to identify wireformat.
+  BufferOffset message;                  // Offset for the message.
+  uint32_t hwm;                          // Offset one beyond the highest used.
+  uint32_t full_size;                    // Full size of buffer.
+  BufferOffset free_list;                // Heap free list.
+  BufferOffset metadata;                 // Offset to message metadata.
+  BufferOffset bitmaps[kNumSmallBlocks]; // Offset to VectorHeader for BitMapRun offsets.
 
   // Initialize a new PayloadBuffer at this with a message of the
   // given size.  This is a fixed size buffer.
   PayloadBuffer(uint32_t size)
       : magic(kFixedBufferMagic), message(0), hwm(0), full_size(size),
         metadata(0) {
+    for (int i = 0; i < kNumSmallBlocks; i++) {
+      bitmaps[i] = 0;
+    }
     InitFreeList();
   }
 
@@ -89,6 +151,9 @@ struct PayloadBuffer {
   PayloadBuffer(uint32_t initial_size, Resizer r)
       : magic(kMovableBufferMagic), message(0), hwm(0), full_size(initial_size),
         metadata(0) {
+    for (int i = 0; i < kNumSmallBlocks; i++) {
+      bitmaps[i] = 0;
+    }
     InitFreeList();
     SetResizer(std::move(r));
   }
@@ -124,6 +189,11 @@ struct PayloadBuffer {
 
   // Allocate space for the message metadata and copy it in.
   static void AllocateMetadata(PayloadBuffer **self, void *md, size_t size);
+
+  // Prime the bitmap runs for the given size.  This pre-allocates the runs
+  // for the size to remove the initial allocation time overhead for the
+  // first allocation.  Returns true if successful.
+  static bool PrimeBitmapAllocator(PayloadBuffer **self, size_t size);
 
   void SetPresenceBit(uint32_t bit, uint32_t offset) {
     uint32_t word = bit / 32;
@@ -185,10 +255,10 @@ struct PayloadBuffer {
   template <typename T> T &Get(BufferOffset offset);
 
   template <typename T>
-  static void VectorPush(PayloadBuffer **self, VectorHeader *hdr, T v);
+  static void VectorPush(PayloadBuffer **self, VectorHeader *hdr, T v, bool enable_small_block = true);
 
   template <typename T>
-  static void VectorReserve(PayloadBuffer **self, VectorHeader *hdr, size_t n);
+  static void VectorReserve(PayloadBuffer **self, VectorHeader *hdr, size_t n, bool enable_small_block = true);
 
   template <typename T>
   static void VectorResize(PayloadBuffer **self, VectorHeader *hdr, size_t n);
@@ -221,16 +291,22 @@ struct PayloadBuffer {
 
   void Dump(std::ostream &os);
   void DumpFreeList(std::ostream &os);
+  void CheckFreeList();
 
   void InitFreeList();
   FreeBlockHeader *FreeList() { return ToAddress<FreeBlockHeader>(free_list); }
 
   // Allocate some memory in the buffer.  The buffer might move.
   static void *Allocate(PayloadBuffer **buffer, uint32_t n, uint32_t alignment,
-                        bool clear = true);
+                        bool clear = true, bool enable_small_block = true);
   void Free(void *p);
   static void *Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
-                       uint32_t alignment, bool clear = true);
+                       uint32_t alignment, bool clear = true, bool enable_small_block = true);
+
+  static BufferOffset AllocateBitMapRunVector(PayloadBuffer **self);
+  static void *AllocateSmallBlock(PayloadBuffer **pb, uint32_t size, int index,
+                                  bool clear = true);
+  static void FreeSmallBlock(PayloadBuffer *pb, int index, int bitmap_index, int bitnum);
 
   // Allocate 'n' items of size 'size' in the buffer.  The buffer might move.
   // Each allocation is aligned to 'alignment' and is capable of being freed
@@ -345,6 +421,9 @@ struct PayloadBuffer {
       hwm = off;
     }
   }
+
+  static BitMapRun *AllocateBitMapRun(PayloadBuffer **self, uint32_t size,
+                                      uint32_t num);
 };
 
 template <typename T> inline void PayloadBuffer::Set(BufferOffset offset, T v) {
@@ -359,7 +438,7 @@ template <typename T> inline T &PayloadBuffer::Get(BufferOffset offset) {
 
 template <typename T>
 inline void PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
-                                      T v) {
+                                      T v, bool enable_small_block) {
   // hdr points to a VectorHeader:
   // uint32_t num_elements;     - number of elements in the vector
   // BufferOffset data;         - BufferOffset to vector contents
@@ -369,7 +448,7 @@ inline void PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
   if (hdr->data == 0) {
     // The vector is empty, allocate it with a default size of 2 and 8 byte
     // alignment.
-    void *vecp = Allocate(self, 2 * sizeof(T), 8);
+    void *vecp = Allocate(self, 2 * sizeof(T), 8, true, enable_small_block);
     hdr->data = (*self)->ToOffset(vecp);
   } else {
     // Vector has some values in it.  Retrieve the total size from
@@ -378,7 +457,7 @@ inline void PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
     uint32_t current_size = block[-1];
     if (current_size == total_size) {
       // Need to double the size of the memory.
-      void *vecp = Realloc(self, block, 2 * hdr->num_elements * sizeof(T), 8);
+      void *vecp = Realloc(self, block, 2 * hdr->num_elements * sizeof(T), 8, true, enable_small_block);
       hdr->data = (*self)->ToOffset(vecp);
     }
   }
@@ -392,9 +471,9 @@ inline void PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
 
 template <typename T>
 inline void PayloadBuffer::VectorReserve(PayloadBuffer **self,
-                                         VectorHeader *hdr, size_t n) {
+                                         VectorHeader *hdr, size_t n, bool enable_small_block) {
   if (hdr->data == 0) {
-    void *vecp = Allocate(self, n * sizeof(T), 8);
+    void *vecp = Allocate(self, n * sizeof(T), 8, false, enable_small_block);
     hdr->data = (*self)->ToOffset(vecp);
   } else {
     // Vector has some values in it.  Retrieve the total size from
@@ -403,7 +482,7 @@ inline void PayloadBuffer::VectorReserve(PayloadBuffer **self,
     uint32_t current_size = block[-1];
     if (current_size < n * sizeof(T)) {
       // Need to expand the memory to the size given.
-      void *vecp = Realloc(self, block, n * sizeof(T), 8);
+      void *vecp = Realloc(self, block, n * sizeof(T), 8, false, enable_small_block);
       hdr->data = (*self)->ToOffset(vecp);
     }
   }

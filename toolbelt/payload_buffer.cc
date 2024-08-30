@@ -4,6 +4,39 @@
 
 namespace toolbelt {
 
+static constexpr struct SmallBlockInfo {
+  int num;
+  int size;
+} small_block_infos[kNumSmallBlocks] = {
+    {kRunSize1, kSmallBlockSize1},
+    {kRunSize2, kSmallBlockSize2},
+    {kRunSize3, kSmallBlockSize3},
+    {kRunSize4, kSmallBlockSize4},
+};
+
+inline int SmallBlockIndex(uint32_t n) {
+  for (int i = 0; i < kNumSmallBlocks; i++) {
+    if (n <= small_block_infos[i].size) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+inline int SmallBlockIndexFromEncodedSize(uint32_t n) {
+  if ((n & (1 << 31)) == 0) {
+    // Not a small block since the high bit is not set.
+    return -1;
+  }
+  n &= kSmallBlockSizeMask;
+  for (int i = 0; i < kNumSmallBlocks; i++) {
+    if (n <= small_block_infos[i].size) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 void *PayloadBuffer::AllocateMainMessage(PayloadBuffer **self, size_t size) {
   void *msg = Allocate(self, size, 8, true);
   (*self)->message = (*self)->ToOffset(msg);
@@ -127,6 +160,10 @@ void PayloadBuffer::Dump(std::ostream &os) {
   os << "  free_list: " << free_list << " " << ToAddress(free_list)
      << std::endl;
   os << "  message: " << message << " " << ToAddress(message) << std::endl;
+  for (int i = 0; i < kNumSmallBlocks; i++) {
+    os << "  bitmaps[" << i << "]: " << bitmaps[i] << " "
+       << ToAddress(bitmaps[i]) << std::endl;
+  }
   DumpFreeList(os);
 }
 
@@ -137,6 +174,17 @@ void PayloadBuffer::DumpFreeList(std::ostream &os) {
        << std::hex << block->length << std::dec;
     os << ", next: " << block->next << " " << ToAddress(block->next)
        << std::endl;
+    block = ToAddress<FreeBlockHeader>(block->next);
+  }
+}
+
+void PayloadBuffer::CheckFreeList() {
+  FreeBlockHeader *block = ToAddress<FreeBlockHeader>(free_list);
+  while (block != nullptr) {
+    if (block->length == 0) {
+      std::cerr << "Zero length free block @" << block << std::endl;
+      abort();
+    }
     block = ToAddress<FreeBlockHeader>(block->next);
   }
 }
@@ -196,7 +244,18 @@ inline uint32_t AlignSize(uint32_t s,
 }
 
 void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
-                              uint32_t alignment, bool clear) {
+                              uint32_t alignment, bool clear,
+                              bool enable_small_block) {
+  if (n == 0) {
+    return nullptr;
+  }
+  if (enable_small_block) {
+    int small_block_index = SmallBlockIndex(n);
+    if (small_block_index >= 0) {
+      return AllocateSmallBlock(buffer, n, small_block_index, clear);
+    }
+  }
+
   n = AlignSize(n, alignment); // Aligned.
   size_t full_length = n + sizeof(uint32_t);
   FreeBlockHeader *free_block = (*buffer)->FreeList();
@@ -354,10 +413,22 @@ void PayloadBuffer::InsertNewFreeBlockAtEnd(FreeBlockHeader *free_block,
 }
 
 void PayloadBuffer::Free(void *p) {
+  if (p == nullptr) {
+    return;
+  }
   // An allocated block has its length immediately before its address.
   uint32_t alloc_length =
       *(reinterpret_cast<uint32_t *>(p) - 1); // Length of allocated block.
+  int small_block_index = SmallBlockIndexFromEncodedSize(alloc_length);
+  if (small_block_index >= 0) {
+    int bitnum =
+        (alloc_length >> kSmallBlockBitNumShift) & kSmallBlockBitNumMask;
+    int bitmap_index =
+        (alloc_length >> kSmallBlockBitMapShift) & kSmallBlockBitMapMask;
 
+    FreeSmallBlock(this, small_block_index, bitmap_index, bitnum);
+    return;
+  }
   // Point to real start of allocated block.
   FreeBlockHeader *alloc_header =
       reinterpret_cast<FreeBlockHeader *>(uintptr_t(p) - sizeof(uint32_t));
@@ -479,7 +550,8 @@ uint32_t *PayloadBuffer::MergeWithFreeBlockBelow(
 }
 
 void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
-                             uint32_t alignment, bool clear) {
+                             uint32_t alignment, bool clear,
+                             bool enable_small_block) {
   if (p == NULL) {
     // No block to realloc, just call malloc.
     return Allocate(buffer, n, alignment, clear);
@@ -487,6 +559,44 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
   // The allocated block has its length immediately prior to its address.
   uint32_t *len_ptr = reinterpret_cast<uint32_t *>(p) - 1;
   uint32_t orig_length = *len_ptr;
+  if (enable_small_block) {
+    int small_block_index = SmallBlockIndexFromEncodedSize(orig_length);
+    if (small_block_index >= 0) {
+      int decoded_length =
+          (orig_length >> kSmallBlockSizeShift) & kSmallBlockSizeMask;
+      // If the new size is in the same small block index we can just return the
+      // original block.
+      if (SmallBlockIndex(n) == small_block_index) {
+        int bitnum =
+            (orig_length >> kSmallBlockBitNumShift) & kSmallBlockBitNumMask;
+        int bitmap_index =
+            (orig_length >> kSmallBlockBitMapShift) & kSmallBlockBitMapMask;
+        int encoded_size =
+            (1 << 31) | (bitmap_index << kSmallBlockBitMapShift) |
+            (bitnum << kSmallBlockBitNumShift) | (n & kSmallBlockSizeMask);
+
+        *len_ptr = encoded_size;
+        if (clear && n > decoded_length) {
+          memset(reinterpret_cast<char *>(p) + decoded_length, 0,
+                 n - decoded_length);
+        }
+        return p;
+      }
+      // Need to free the old block and allocate a new one as the small block
+      // index is different.
+      void *newp = Allocate(buffer, n, alignment, false, enable_small_block);
+      if (newp == NULL) {
+        return NULL;
+      }
+      memcpy(newp, p, decoded_length);
+      if (clear && n > decoded_length) {
+        memset(reinterpret_cast<char *>(newp) + decoded_length, 0,
+               n - decoded_length);
+      }
+      (*buffer)->Free(p);
+      return newp;
+    }
+  }
   FreeBlockHeader *alloc_block =
       reinterpret_cast<FreeBlockHeader *>(uintptr_t(p) - sizeof(uint32_t));
   uintptr_t alloc_addr = (uintptr_t)p;
@@ -552,7 +662,7 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
   // one, copy the memory and free the old block.  We are guaranteed that
   // the new block is larger than the original one since if it was smaller
   // we can always reuse the block.
-  void *newp = Allocate(buffer, n, alignment, false);
+  void *newp = Allocate(buffer, n, alignment, false, enable_small_block);
   if (newp == NULL) {
     return NULL;
   }
@@ -564,4 +674,140 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
   return newp;
 }
 
+bool PayloadBuffer::PrimeBitmapAllocator(PayloadBuffer **self, size_t size) {
+  int index = SmallBlockIndex(size);
+  if (index < 0) {
+    return true;
+  }
+  if ((*self)->bitmaps[index] != 0) {
+    return true;
+  }
+  BufferOffset offset = (*self)->AllocateBitMapRunVector(self);
+  if (offset == 0) {
+    return false;
+  }
+  (*self)->bitmaps[index] = offset;
+  VectorHeader *hdr = (*self)->ToAddress<VectorHeader>((*self)->bitmaps[index]);
+
+  BitMapRun *run = PayloadBuffer::AllocateBitMapRun(
+      self, small_block_infos[index].size, small_block_infos[index].num);
+  if (run == nullptr) {
+    return false;
+  }
+  // Add to the vector, this might move the vector contents but the header
+  // will stay where it is.
+  (*self)->VectorPush<BufferOffset>(self, hdr, (*self)->ToOffset(run), false);
+  return true;
+}
+
+BufferOffset PayloadBuffer::AllocateBitMapRunVector(PayloadBuffer **self) {
+  // Allocate space for the VectorHeader.  Although this is a small block, we
+  // can't use the small block allocator because this is initializing it.
+  void *hdr = Allocate(self, sizeof(VectorHeader), 4, true, false);
+  if (hdr == nullptr) {
+    return 0;
+  }
+  BufferOffset hdr_offset = (*self)->ToOffset(hdr);
+
+  // Preallocate space for 8 elements.
+  VectorReserve<BufferOffset>(self, reinterpret_cast<VectorHeader*>(hdr), 8, false);
+  return hdr_offset;
+}
+
+BitMapRun *PayloadBuffer::AllocateBitMapRun(PayloadBuffer **self, uint32_t size,
+                                            uint32_t num) {
+  // It is important that this isn't a small block as it will infintely recurse.
+  // The full size of the BitMapRun contains space for the blocks themselves,
+  // each of which is prefixed by a 4 byte length.  The length is encoded
+  // with data necessary for freeing it.
+  BitMapRun *run = reinterpret_cast<BitMapRun *>(
+      Allocate(self, sizeof(BitMapRun) + (size + 4) * num, 4, false, false));
+  if (run == nullptr) {
+    return nullptr;
+  }
+  run->size = size;
+  run->num = num;
+  run->bits = 0;
+  run->free = num; // All blocks are free.
+  return run;
+}
+
+void *BitMapRun::Allocate(PayloadBuffer **pb, int index, uint32_t n, int size,
+                          int num, bool clear) {
+  // Lazy init of vector.
+  if ((*pb)->bitmaps[index] == 0) {
+    BufferOffset offset = (*pb)->AllocateBitMapRunVector(pb);
+    if (offset == 0) {
+      return nullptr;
+    }
+    (*pb)->bitmaps[index] = offset;
+  }
+  VectorHeader *hdr = (*pb)->ToAddress<VectorHeader>((*pb)->bitmaps[index]);
+  for (;;) {
+    // Go backwards through the elements as that is most likely to find a free
+    // bit.
+    for (int i = hdr->num_elements - 1; i >= 0; i--) {
+      BitMapRun *run =
+          (*pb)->ToAddress<BitMapRun>((*pb)->VectorGet<BufferOffset>(hdr, i));
+      if (run->free == 0) {
+        continue;
+      }
+      // Fast path: there is a free bit in the run.
+      int bit = ffs(~run->bits);
+      assert(bit > 0 && bit <= run->num);
+      bit--; // Convert to 0-based index.
+      run->bits |= 1 << bit;
+      run->free--;
+
+      // The address of the block is after the header and indexed by the bit
+      // number times the size of the block plus 4 bytes for the length.  Then
+      // we need the address after the length word.
+      void *addr = reinterpret_cast<char *>(run) + sizeof(BitMapRun) +
+                   bit * (run->size + 4) + 4;
+      // Write the encoded size of the block into the preceding 4 bytes.
+      uint32_t *p = reinterpret_cast<uint32_t *>(addr) - 1;
+      // Encode the length.
+      int encoded_size = (1 << 31) | (i << kSmallBlockBitMapShift) |
+                         (bit << kSmallBlockBitNumShift) |
+                         (size & kSmallBlockSizeMask);
+      *p = encoded_size;
+      if (clear) {
+        memset(addr, 0, size);
+      }
+      return addr;
+    }
+    // Slow path, no free bits in any run.  We need to allocate a new run.
+    BitMapRun *run = PayloadBuffer::AllocateBitMapRun(pb, size, num);
+    if (run == nullptr) {
+      return nullptr;
+    }
+    // Add to the vector, this might move the vector contents but the header
+    // will stay where it is.
+    (*pb)->VectorPush<BufferOffset>(pb, hdr, (*pb)->ToOffset(run), false);
+  }
+}
+
+void BitMapRun::Free(PayloadBuffer *pb, int index, int bitmap_index,
+                     int bitnum) {
+  // This is always fast path since we have all the information we need
+  // to free the block.  We basically just clear a bit and increment the
+  // free count.
+  VectorHeader *hdr = pb->ToAddress<VectorHeader>(pb->bitmaps[index]);
+  assert(hdr != nullptr);
+  BitMapRun *run =
+      pb->ToAddress<BitMapRun>(pb->VectorGet<BufferOffset>(hdr, bitmap_index));
+  run->bits &= ~(1 << bitnum);
+  run->free++;
+}
+
+void *PayloadBuffer::AllocateSmallBlock(PayloadBuffer **pb, uint32_t size,
+                                        int index, bool clear) {
+  return BitMapRun::Allocate(pb, index, size, small_block_infos[index].size,
+                             small_block_infos[index].num, clear);
+}
+
+void PayloadBuffer::FreeSmallBlock(PayloadBuffer *pb, int index,
+                                   int bitmap_index, int bitnum) {
+  BitMapRun::Free(pb, index, bitmap_index, bitnum);
+}
 } // namespace toolbelt
