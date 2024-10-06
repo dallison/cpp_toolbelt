@@ -12,8 +12,8 @@
 #include <unistd.h>
 
 #include <algorithm>
-#include <string>
 #include <iostream>
+#include <string>
 
 #include "absl/strings/str_format.h"
 #include "hexdump.h"
@@ -202,7 +202,8 @@ absl::StatusOr<ssize_t> Socket::ReceiveMessage(char *buffer, size_t buflen,
       ReceiveFully(c, fd_.Fd(), sizeof(int32_t), lenbuf, sizeof(lenbuf));
   if (n != sizeof(lenbuf)) {
     if (n == 0) {
-      return absl::InternalError(absl::StrFormat("Failed to read socket %d: socket closed", fd_.Fd()));
+      return absl::InternalError(
+          absl::StrFormat("Failed to read socket %d: socket closed", fd_.Fd()));
     }
     return absl::InternalError(absl::StrFormat(
         "Failed to read length from socket %d: %s", fd_.Fd(), strerror(errno)));
@@ -214,6 +215,41 @@ absl::StatusOr<ssize_t> Socket::ReceiveMessage(char *buffer, size_t buflen,
         "Failed to read data from socket: %s", strerror(errno)));
   }
   return n;
+}
+
+absl::StatusOr<std::vector<char>>
+Socket::ReceiveVariableLengthMessage(co::Coroutine *c) {
+  if (!Connected()) {
+    return absl::InternalError("Socket is not connected");
+  }
+  // Although the send is done using a single send to the socket by
+  // prefixing it with the length, we can't use that trick for receiving.
+  // We cannot avoid doing 2 receives:
+  // 1. Receive the length
+  // 2. Receive the data
+  //
+  // This is because if we receive more than the message length we will
+  // be receiving data from the next message on the socket.
+  char lenbuf[4];
+  ssize_t n =
+      ReceiveFully(c, fd_.Fd(), sizeof(int32_t), lenbuf, sizeof(lenbuf));
+  if (n != sizeof(lenbuf)) {
+    if (n == 0) {
+      return absl::InternalError(
+          absl::StrFormat("Failed to read socket %d: socket closed", fd_.Fd()));
+    }
+    return absl::InternalError(absl::StrFormat(
+        "Failed to read length from socket %d: %s", fd_.Fd(), strerror(errno)));
+  }
+  size_t length = ntohl(*reinterpret_cast<int32_t *>(lenbuf));
+  std::vector<char> buffer(length);
+
+  n = ReceiveFully(c, fd_.Fd(), length, buffer.data(), buffer.size());
+  if (n == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Failed to read data from socket: %s", strerror(errno)));
+  }
+  return buffer;
 }
 
 absl::StatusOr<ssize_t> Socket::SendMessage(char *buffer, size_t length,
@@ -424,7 +460,7 @@ absl::Status NetworkSocket::Connect(const InetAddress &addr) {
     return absl::InternalError("Socket is not valid");
   }
   if (!addr.Valid()) {
-	return absl::InternalError("Bad InetAddress");
+    return absl::InternalError("Bad InetAddress");
   }
   int e = ::connect(fd_.Fd(),
                     reinterpret_cast<const sockaddr *>(&addr.GetAddress()),
@@ -476,8 +512,8 @@ absl::Status TCPSocket::Bind(const InetAddress &addr, bool listen) {
   if (binding_to_zero) {
     struct sockaddr_in bound;
     socklen_t len = sizeof(bound);
-    int name_err = getsockname(fd_.Fd(), reinterpret_cast<struct sockaddr *>(&bound),
-                        &len);
+    int name_err = getsockname(
+        fd_.Fd(), reinterpret_cast<struct sockaddr *>(&bound), &len);
     if (name_err == -1) {
       return absl::InternalError(
           absl::StrFormat("Failed to obtain bound address for %s: %s",
@@ -550,8 +586,8 @@ absl::Status UDPSocket::SendTo(const InetAddress &addr, const void *buffer,
     c->Wait(fd_.Fd(), POLLOUT);
   }
   ssize_t n = ::sendto(fd_.Fd(), buffer, length, 0,
-                      reinterpret_cast<const sockaddr *>(&addr.GetAddress()),
-                      addr.GetLength());
+                       reinterpret_cast<const sockaddr *>(&addr.GetAddress()),
+                       addr.GetLength());
   if (n == -1) {
     return absl::InternalError(
         absl::StrFormat("Unable to send UDP datagram to %s: %s",
@@ -582,8 +618,8 @@ absl::StatusOr<ssize_t> UDPSocket::ReceiveFrom(InetAddress &sender,
   socklen_t sender_addr_length = sizeof(sender_addr);
 
   ssize_t n = recvfrom(fd_.Fd(), buffer, buflen, 0,
-                      reinterpret_cast<struct sockaddr *>(&sender_addr),
-                      &sender_addr_length);
+                       reinterpret_cast<struct sockaddr *>(&sender_addr),
+                       &sender_addr_length);
   if (n == -1) {
     return absl::InternalError(
         absl::StrFormat("Unable to receive UDP datagram: %s", strerror(errno)));
