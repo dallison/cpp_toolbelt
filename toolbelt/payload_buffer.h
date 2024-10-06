@@ -11,6 +11,9 @@
 
 namespace toolbelt {
 
+// Experimental small block bitmap allocator.  Not ready yet.
+#define SMALL_BLOCK_ALLOCATOR 0
+
 constexpr uint32_t kFixedBufferMagic = 0xe5f6f1c4;
 constexpr uint32_t kMovableBufferMagic = 0xc5f6f1c4;
 
@@ -57,6 +60,7 @@ using StringHeader = BufferOffset;
 using Resizer =
     std::function<void(PayloadBuffer **, size_t old_size, size_t new_size)>;
 
+#if SMALL_BLOCK_ALLOCATOR
 // BitMap allocator.  In order to reduce fragmentation and speed up allocation
 // of small blocks, we use a bitmap allocator for a fixed number of small block
 // sizes.  Each BitMapRun refers to a run of blocks of the same size.  It
@@ -66,16 +70,16 @@ using Resizer =
 // preceding an allocated small block to avoid searching during free.
 
 struct BitMapRun {
-  uint32_t bits;     // Bit per chunk.
-  uint8_t size;      // Size of each chunk.
-  uint8_t num;       // Number of chunks in run.
-  uint8_t free;      // Number of free chunks.
+  uint32_t bits; // Bit per chunk.
+  uint8_t size;  // Size of each chunk.
+  uint8_t num;   // Number of chunks in run.
+  uint8_t free;  // Number of free chunks.
   // The memory for the run is immediately after the BitMapRun.
 
   // Allocate a chunk from the run.  If we are out of chunks, a new
   // run is allocated and the chunk is taken from that.
-  static void *Allocate(PayloadBuffer **pb, int index,
-                        uint32_t n, int size, int num, bool clear = true);
+  static void *Allocate(PayloadBuffer **pb, int index, uint32_t n, int size,
+                        int num, bool clear = true);
   static void Free(PayloadBuffer *pb, int index, int bitmap_index, int bitnum);
 };
 
@@ -112,29 +116,33 @@ inline constexpr int kSmallBlockSizeShift = 0;
 inline constexpr uint32_t kSmallBlockBitNumMask = 0x1f;
 inline constexpr uint32_t kSmallBlockBitMapMask = 0x3ffff;
 inline constexpr uint32_t kSmallBlockSizeMask = 0xff;
-
+#endif
 
 // This is a buffer that holds the contents of a message.
 // It is located at the first address of the actual buffer with the
 // reset of the buffer memory following it.
 //
 struct PayloadBuffer {
-  uint32_t magic;                        // Magic to identify wireformat.
-  BufferOffset message;                  // Offset for the message.
-  uint32_t hwm;                          // Offset one beyond the highest used.
-  uint32_t full_size;                    // Full size of buffer.
-  BufferOffset free_list;                // Heap free list.
-  BufferOffset metadata;                 // Offset to message metadata.
-  BufferOffset bitmaps[kNumSmallBlocks]; // Offset to VectorHeader for BitMapRun offsets.
-
+  uint32_t magic;         // Magic to identify wireformat.
+  BufferOffset message;   // Offset for the message.
+  uint32_t hwm;           // Offset one beyond the highest used.
+  uint32_t full_size;     // Full size of buffer.
+  BufferOffset free_list; // Heap free list.
+  BufferOffset metadata;  // Offset to message metadata.
+#if SMALL_BLOCK_ALLOCATOR
+  BufferOffset
+      bitmaps[kNumSmallBlocks]; // Offset to VectorHeader for BitMapRun offsets.
+#endif
   // Initialize a new PayloadBuffer at this with a message of the
   // given size.  This is a fixed size buffer.
   PayloadBuffer(uint32_t size)
       : magic(kFixedBufferMagic), message(0), hwm(0), full_size(size),
         metadata(0) {
+#if SMALL_BLOCK_ALLOCATOR
     for (int i = 0; i < kNumSmallBlocks; i++) {
       bitmaps[i] = 0;
     }
+#endif
     InitFreeList();
   }
 
@@ -151,9 +159,11 @@ struct PayloadBuffer {
   PayloadBuffer(uint32_t initial_size, Resizer r)
       : magic(kMovableBufferMagic), message(0), hwm(0), full_size(initial_size),
         metadata(0) {
+#if SMALL_BLOCK_ALLOCATOR
     for (int i = 0; i < kNumSmallBlocks; i++) {
       bitmaps[i] = 0;
     }
+#endif
     InitFreeList();
     SetResizer(std::move(r));
   }
@@ -189,12 +199,12 @@ struct PayloadBuffer {
 
   // Allocate space for the message metadata and copy it in.
   static void AllocateMetadata(PayloadBuffer **self, void *md, size_t size);
-
+#if SMALL_BLOCK_ALLOCATOR
   // Prime the bitmap runs for the given size.  This pre-allocates the runs
   // for the size to remove the initial allocation time overhead for the
   // first allocation.  Returns true if successful.
   static bool PrimeBitmapAllocator(PayloadBuffer **self, size_t size);
-
+#endif
   void SetPresenceBit(uint32_t bit, uint32_t offset) {
     uint32_t word = bit / 32;
     bit %= 32;
@@ -249,10 +259,12 @@ struct PayloadBuffer {
   template <typename T> T &Get(BufferOffset offset);
 
   template <typename T>
-  static void VectorPush(PayloadBuffer **self, VectorHeader *hdr, T v, bool enable_small_block = true);
+  static void VectorPush(PayloadBuffer **self, VectorHeader *hdr, T v,
+                         bool enable_small_block = true);
 
   template <typename T>
-  static void VectorReserve(PayloadBuffer **self, VectorHeader *hdr, size_t n, bool enable_small_block = true);
+  static void VectorReserve(PayloadBuffer **self, VectorHeader *hdr, size_t n,
+                            bool enable_small_block = true);
 
   template <typename T>
   static void VectorResize(PayloadBuffer **self, VectorHeader *hdr, size_t n);
@@ -295,12 +307,15 @@ struct PayloadBuffer {
                         bool clear = true, bool enable_small_block = true);
   void Free(void *p);
   static void *Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
-                       uint32_t alignment, bool clear = true, bool enable_small_block = true);
-
+                       uint32_t alignment, bool clear = true,
+                       bool enable_small_block = true);
+#if SMALL_BLOCK_ALLOCATOR
   static BufferOffset AllocateBitMapRunVector(PayloadBuffer **self);
   static void *AllocateSmallBlock(PayloadBuffer **pb, uint32_t size, int index,
                                   bool clear = true);
-  static void FreeSmallBlock(PayloadBuffer *pb, int index, int bitmap_index, int bitnum);
+  static void FreeSmallBlock(PayloadBuffer *pb, int index, int bitmap_index,
+                             int bitnum);
+#endif
 
   // Allocate 'n' items of size 'size' in the buffer.  The buffer might move.
   // Each allocation is aligned to 'alignment' and is capable of being freed
@@ -415,15 +430,15 @@ struct PayloadBuffer {
       hwm = off;
     }
   }
-
+#if SMALL_BLOCK_ALLOCATOR
   static BitMapRun *AllocateBitMapRun(PayloadBuffer **self, uint32_t size,
                                       uint32_t num);
+#endif
 };
 
-
 template <>
-char *PayloadBuffer::SetString(PayloadBuffer **self, const char *s,
-                BufferOffset header_offset) {
+inline char *PayloadBuffer::SetString(PayloadBuffer **self, const char *s,
+                                      BufferOffset header_offset) {
   return SetString(self, s, strlen(s), header_offset);
 }
 
@@ -458,7 +473,8 @@ inline void PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
     uint32_t current_size = block[-1];
     if (current_size == total_size) {
       // Need to double the size of the memory.
-      void *vecp = Realloc(self, block, 2 * hdr->num_elements * sizeof(T), 8, true, enable_small_block);
+      void *vecp = Realloc(self, block, 2 * hdr->num_elements * sizeof(T), 8,
+                           true, enable_small_block);
       hdr->data = (*self)->ToOffset(vecp);
     }
   }
@@ -472,7 +488,8 @@ inline void PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
 
 template <typename T>
 inline void PayloadBuffer::VectorReserve(PayloadBuffer **self,
-                                         VectorHeader *hdr, size_t n, bool enable_small_block) {
+                                         VectorHeader *hdr, size_t n,
+                                         bool enable_small_block) {
   if (hdr->data == 0) {
     void *vecp = Allocate(self, n * sizeof(T), 8, false, enable_small_block);
     hdr->data = (*self)->ToOffset(vecp);
@@ -483,7 +500,8 @@ inline void PayloadBuffer::VectorReserve(PayloadBuffer **self,
     uint32_t current_size = block[-1];
     if (current_size < n * sizeof(T)) {
       // Need to expand the memory to the size given.
-      void *vecp = Realloc(self, block, n * sizeof(T), 8, false, enable_small_block);
+      void *vecp =
+          Realloc(self, block, n * sizeof(T), 8, false, enable_small_block);
       hdr->data = (*self)->ToOffset(vecp);
     }
   }

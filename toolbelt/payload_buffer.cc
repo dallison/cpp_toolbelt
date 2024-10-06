@@ -3,7 +3,7 @@
 #include <vector>
 
 namespace toolbelt {
-
+#if SMALL_BLOCK_ALLOCATOR
 static constexpr struct SmallBlockInfo {
   int num;
   int size;
@@ -36,6 +36,7 @@ inline int SmallBlockIndexFromEncodedSize(uint32_t n) {
   }
   return -1;
 }
+#endif
 
 void *PayloadBuffer::AllocateMainMessage(PayloadBuffer **self, size_t size) {
   void *msg = Allocate(self, size, 8, true);
@@ -160,10 +161,12 @@ void PayloadBuffer::Dump(std::ostream &os) {
   os << "  free_list: " << free_list << " " << ToAddress(free_list)
      << std::endl;
   os << "  message: " << message << " " << ToAddress(message) << std::endl;
+#if SMALL_BLOCK_ALLOCATOR
   for (int i = 0; i < kNumSmallBlocks; i++) {
     os << "  bitmaps[" << i << "]: " << bitmaps[i] << " "
        << ToAddress(bitmaps[i]) << std::endl;
   }
+#endif
   DumpFreeList(os);
 }
 
@@ -249,13 +252,14 @@ void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
   if (n == 0) {
     return nullptr;
   }
+#if SMALL_BLOCK_ALLOCATOR
   if (enable_small_block) {
     int small_block_index = SmallBlockIndex(n);
     if (small_block_index >= 0) {
       return AllocateSmallBlock(buffer, n, small_block_index, clear);
     }
   }
-
+#endif
   n = AlignSize(n, alignment); // Aligned.
   size_t full_length = n + sizeof(uint32_t);
   FreeBlockHeader *free_block = (*buffer)->FreeList();
@@ -419,6 +423,7 @@ void PayloadBuffer::Free(void *p) {
   // An allocated block has its length immediately before its address.
   uint32_t alloc_length =
       *(reinterpret_cast<uint32_t *>(p) - 1); // Length of allocated block.
+#if SMALL_BLOCK_ALLOCATOR
   int small_block_index = SmallBlockIndexFromEncodedSize(alloc_length);
   if (small_block_index >= 0) {
     int bitnum =
@@ -429,6 +434,7 @@ void PayloadBuffer::Free(void *p) {
     FreeSmallBlock(this, small_block_index, bitmap_index, bitnum);
     return;
   }
+#endif
   // Point to real start of allocated block.
   FreeBlockHeader *alloc_header =
       reinterpret_cast<FreeBlockHeader *>(uintptr_t(p) - sizeof(uint32_t));
@@ -559,6 +565,7 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
   // The allocated block has its length immediately prior to its address.
   uint32_t *len_ptr = reinterpret_cast<uint32_t *>(p) - 1;
   uint32_t orig_length = *len_ptr;
+#if SMALL_BLOCK_ALLOCATOR
   if (enable_small_block) {
     int small_block_index = SmallBlockIndexFromEncodedSize(orig_length);
     if (small_block_index >= 0) {
@@ -597,6 +604,7 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
       return newp;
     }
   }
+#endif
   FreeBlockHeader *alloc_block =
       reinterpret_cast<FreeBlockHeader *>(uintptr_t(p) - sizeof(uint32_t));
   uintptr_t alloc_addr = (uintptr_t)p;
@@ -673,7 +681,7 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
   (*buffer)->Free(p);
   return newp;
 }
-
+#if SMALL_BLOCK_ALLOCATOR
 bool PayloadBuffer::PrimeBitmapAllocator(PayloadBuffer **self, size_t size) {
   int index = SmallBlockIndex(size);
   if (index < 0) {
@@ -710,7 +718,8 @@ BufferOffset PayloadBuffer::AllocateBitMapRunVector(PayloadBuffer **self) {
   BufferOffset hdr_offset = (*self)->ToOffset(hdr);
 
   // Preallocate space for 8 elements.
-  VectorReserve<BufferOffset>(self, reinterpret_cast<VectorHeader*>(hdr), 8, false);
+  VectorReserve<BufferOffset>(self, reinterpret_cast<VectorHeader *>(hdr), 8,
+                              false);
   return hdr_offset;
 }
 
@@ -810,4 +819,5 @@ void PayloadBuffer::FreeSmallBlock(PayloadBuffer *pb, int index,
                                    int bitmap_index, int bitnum) {
   BitMapRun::Free(pb, index, bitmap_index, bitnum);
 }
+#endif
 } // namespace toolbelt

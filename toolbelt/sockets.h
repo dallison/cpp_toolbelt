@@ -114,6 +114,9 @@ public:
   absl::StatusOr<ssize_t> ReceiveMessage(char *buffer, size_t buflen,
                                          co::Coroutine *c = nullptr);
 
+  absl::StatusOr<std::vector<char>> ReceiveVariableLengthMessage(
+      co::Coroutine *c = nullptr);
+      
   // For SendMessage, the buffer pointer must be 4 bytes beyond
   // the actual buffer start, which must be length+4 bytes
   // long.  We write exactly length+4 bytes to the socket starting
