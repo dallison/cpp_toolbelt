@@ -11,11 +11,12 @@
 
 namespace toolbelt {
 
-// Experimental small block bitmap allocator.  Not ready yet.
-#define SMALL_BLOCK_ALLOCATOR 0
-
 constexpr uint32_t kFixedBufferMagic = 0xe5f6f1c4;
 constexpr uint32_t kMovableBufferMagic = 0xc5f6f1c4;
+
+// Bottom bit is set for enabling bitmap allocator.
+constexpr uint32_t kBitMapMask = 0xfffffffe;
+constexpr uint32_t kBitMapFlag = 1;
 
 using BufferOffset = uint32_t;
 
@@ -60,7 +61,6 @@ using StringHeader = BufferOffset;
 using Resizer =
     std::function<void(PayloadBuffer **, size_t old_size, size_t new_size)>;
 
-#if SMALL_BLOCK_ALLOCATOR
 // BitMap allocator.  In order to reduce fragmentation and speed up allocation
 // of small blocks, we use a bitmap allocator for a fixed number of small block
 // sizes.  Each BitMapRun refers to a run of blocks of the same size.  It
@@ -83,19 +83,26 @@ struct BitMapRun {
   static void Free(PayloadBuffer *pb, int index, int bitmap_index, int bitnum);
 };
 
-inline constexpr size_t kNumSmallBlocks = 4;
+// Default bitmap allocator runs.
+inline constexpr size_t kNumBitmapRuns = 4;
 
-// Run size for each block size.
-inline constexpr int kRunSize1 = 32;
-inline constexpr int kRunSize2 = 16;
-inline constexpr int kRunSize3 = 8;
-inline constexpr int kRunSize4 = 4;
+// Run size for each block size.   This is the size of the run, that is, how
+// many individual blocks are in a run.  There is a limit of 32 since we use an
+// unsigned int for the bitmap.  A whole run is allocated at once so there is
+// overhead in the allocation of a run.  Tune this to balance the performance vs
+// message size.
+inline constexpr int kRunSize1 = 20;
+inline constexpr int kRunSize2 = 10;
+inline constexpr int kRunSize3 = 6;
+inline constexpr int kRunSize4 = 2;
 
-// Block size for each small block.
-inline constexpr int kSmallBlockSize1 = 16;
-inline constexpr int kSmallBlockSize2 = 32;
-inline constexpr int kSmallBlockSize3 = 64;
-inline constexpr int kSmallBlockSize4 = 128;
+// Block size for each bitmap run.  Each bitmap run allocates blocks of the same
+// size in a contiguous block of memory in the buffer.  The size of each block
+// in a run is below.
+inline constexpr int kBitmapRunSize1 = 16;
+inline constexpr int kBitmapRunSize2 = 32;
+inline constexpr int kBitmapRunSize3 = 64;
+inline constexpr int kBitmapRunSize4 = 128;
 
 // In order to allow free to work without searching, we use the 4 bytes
 // preceding the allocated block in the run to store the size of the block, the
@@ -108,15 +115,14 @@ inline constexpr int kSmallBlockSize4 = 128;
 // 3. Bits 7-0 (8 bits) contain the size of the block.
 
 // Shifts for size encoding for small blocks.
-inline constexpr int kSmallBlockBitNumShift = 26;
-inline constexpr int kSmallBlockBitMapShift = 8;
-inline constexpr int kSmallBlockSizeShift = 0;
+inline constexpr int kBitmpRunBitNumShift = 26;
+inline constexpr int kBitmapRunBitMapShift = 8;
+inline constexpr int kBitmapRunSizeShift = 0;
 
 // Masks
-inline constexpr uint32_t kSmallBlockBitNumMask = 0x1f;
-inline constexpr uint32_t kSmallBlockBitMapMask = 0x3ffff;
-inline constexpr uint32_t kSmallBlockSizeMask = 0xff;
-#endif
+inline constexpr uint32_t kBitmapRunBitNumMask = 0x1f;
+inline constexpr uint32_t kBitmapRunBitMapMask = 0x3ffff;
+inline constexpr uint32_t kBitmapRunSizeMask = 0xff;
 
 // This is a buffer that holds the contents of a message.
 // It is located at the first address of the actual buffer with the
@@ -129,20 +135,17 @@ struct PayloadBuffer {
   uint32_t full_size;     // Full size of buffer.
   BufferOffset free_list; // Heap free list.
   BufferOffset metadata;  // Offset to message metadata.
-#if SMALL_BLOCK_ALLOCATOR
   BufferOffset
-      bitmaps[kNumSmallBlocks]; // Offset to VectorHeader for BitMapRun offsets.
-#endif
+      bitmaps[kNumBitmapRuns]; // Offset to VectorHeader for BitMapRun offsets.
+
   // Initialize a new PayloadBuffer at this with a message of the
   // given size.  This is a fixed size buffer.
-  PayloadBuffer(uint32_t size)
-      : magic(kFixedBufferMagic), message(0), hwm(0), full_size(size),
-        metadata(0) {
-#if SMALL_BLOCK_ALLOCATOR
-    for (int i = 0; i < kNumSmallBlocks; i++) {
+  PayloadBuffer(uint32_t size, bool bitmap_allocator = true)
+      : magic(kFixedBufferMagic | (bitmap_allocator ? kBitMapFlag : 0)),
+        message(0), hwm(0), full_size(size), metadata(0) {
+    for (int i = 0; i < kNumBitmapRuns; i++) {
       bitmaps[i] = 0;
     }
-#endif
     InitFreeList();
   }
 
@@ -156,25 +159,25 @@ struct PayloadBuffer {
   // This implies that you need to destruct the payload buffer to avoid
   // a memory leak.  This is only necessary for resizable buffers.  Fixed
   // size buffers don't need to be destructed.
-  PayloadBuffer(uint32_t initial_size, Resizer r)
-      : magic(kMovableBufferMagic), message(0), hwm(0), full_size(initial_size),
-        metadata(0) {
-#if SMALL_BLOCK_ALLOCATOR
-    for (int i = 0; i < kNumSmallBlocks; i++) {
+  PayloadBuffer(uint32_t initial_size, Resizer r, bool bitmap_allocator = true)
+      : magic(kMovableBufferMagic | (bitmap_allocator ? kBitMapFlag : 0)),
+        message(0), hwm(0), full_size(initial_size), metadata(0) {
+    for (int i = 0; i < kNumBitmapRuns; i++) {
       bitmaps[i] = 0;
     }
-#endif
     InitFreeList();
     SetResizer(std::move(r));
   }
 
   ~PayloadBuffer() {
-    if (magic == kMovableBufferMagic) {
+    if (IsMoveable()) {
       // Destruct the resizer.
       Resizer **addr = reinterpret_cast<Resizer **>(this + 1);
       delete *addr;
     }
   }
+
+  bool BitmapsEnabled() const { return (magic & kBitMapFlag) != 0; }
 
   void SetResizer(Resizer r) {
     // Place a pointer to the resizer function in the buffer just after the
@@ -185,7 +188,7 @@ struct PayloadBuffer {
   }
 
   Resizer *GetResizer() {
-    if (magic != kMovableBufferMagic) {
+    if (!IsMoveable()) {
       return nullptr;
     }
     return *reinterpret_cast<Resizer **>(this + 1);
@@ -199,12 +202,10 @@ struct PayloadBuffer {
 
   // Allocate space for the message metadata and copy it in.
   static void AllocateMetadata(PayloadBuffer **self, void *md, size_t size);
-#if SMALL_BLOCK_ALLOCATOR
   // Prime the bitmap runs for the given size.  This pre-allocates the runs
   // for the size to remove the initial allocation time overhead for the
   // first allocation.  Returns true if successful.
   static bool PrimeBitmapAllocator(PayloadBuffer **self, size_t size);
-#endif
   void SetPresenceBit(uint32_t bit, uint32_t offset) {
     uint32_t word = bit / 32;
     bit %= 32;
@@ -309,13 +310,11 @@ struct PayloadBuffer {
   static void *Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
                        uint32_t alignment, bool clear = true,
                        bool enable_small_block = true);
-#if SMALL_BLOCK_ALLOCATOR
   static BufferOffset AllocateBitMapRunVector(PayloadBuffer **self);
   static void *AllocateSmallBlock(PayloadBuffer **pb, uint32_t size, int index,
                                   bool clear = true);
   static void FreeSmallBlock(PayloadBuffer *pb, int index, int bitmap_index,
                              int bitnum);
-#endif
 
   // Allocate 'n' items of size 'size' in the buffer.  The buffer might move.
   // Each allocation is aligned to 'alignment' and is capable of being freed
@@ -326,8 +325,13 @@ struct PayloadBuffer {
                                           bool clear = true);
 
   bool IsValidMagic() const {
-    return magic == kFixedBufferMagic || magic == kMovableBufferMagic;
+    uint32_t m = magic & kBitMapMask;
+    return m == kFixedBufferMagic || m == kMovableBufferMagic;
   }
+  bool IsMoveable() const {
+    return (magic & kBitMapMask) == kMovableBufferMagic;
+  }
+
   bool IsValidAddress(const void *addr, size_t size) const {
     if (size == 0) {
       size = full_size;
@@ -430,10 +434,8 @@ struct PayloadBuffer {
       hwm = off;
     }
   }
-#if SMALL_BLOCK_ALLOCATOR
   static BitMapRun *AllocateBitMapRun(PayloadBuffer **self, uint32_t size,
                                       uint32_t num);
-#endif
 };
 
 template <>
