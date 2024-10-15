@@ -3,40 +3,38 @@
 #include <vector>
 
 namespace toolbelt {
-#if SMALL_BLOCK_ALLOCATOR
-static constexpr struct SmallBlockInfo {
+static constexpr struct BitmapRunInfo {
   int num;
   int size;
-} small_block_infos[kNumSmallBlocks] = {
-    {kRunSize1, kSmallBlockSize1},
-    {kRunSize2, kSmallBlockSize2},
-    {kRunSize3, kSmallBlockSize3},
-    {kRunSize4, kSmallBlockSize4},
+} bitmp_run_infos[kNumBitmapRuns] = {
+    {kRunSize1, kBitmapRunSize1},
+    {kRunSize2, kBitmapRunSize2},
+    {kRunSize3, kBitmapRunSize3},
+    {kRunSize4, kBitmapRunSize4},
 };
 
-inline int SmallBlockIndex(uint32_t n) {
-  for (int i = 0; i < kNumSmallBlocks; i++) {
-    if (n <= small_block_infos[i].size) {
+inline int BitmapRunIndex(uint32_t n) {
+  for (int i = 0; i < kNumBitmapRuns; i++) {
+    if (n <= bitmp_run_infos[i].size) {
       return i;
     }
   }
   return -1;
 }
 
-inline int SmallBlockIndexFromEncodedSize(uint32_t n) {
+inline int BitmapRunIndexFromEncodedSize(uint32_t n) {
   if ((n & (1 << 31)) == 0) {
     // Not a small block since the high bit is not set.
     return -1;
   }
-  n &= kSmallBlockSizeMask;
-  for (int i = 0; i < kNumSmallBlocks; i++) {
-    if (n <= small_block_infos[i].size) {
+  n &= kBitmapRunSizeMask;
+  for (int i = 0; i < kNumBitmapRuns; i++) {
+    if (n <= bitmp_run_infos[i].size) {
       return i;
     }
   }
   return -1;
 }
-#endif
 
 void *PayloadBuffer::AllocateMainMessage(PayloadBuffer **self, size_t size) {
   void *msg = Allocate(self, size, 8, true);
@@ -153,7 +151,10 @@ absl::Span<char> PayloadBuffer::AllocateString(PayloadBuffer **self, size_t len,
 
 void PayloadBuffer::Dump(std::ostream &os) {
   os << "PayloadBuffer: " << this << std::endl;
-  os << "  magic: " << (magic == kFixedBufferMagic ? "fixed" : "moveable")
+  os << "  magic: "
+     << (!IsValidMagic() ? "invalid" : (IsMoveable() ? "moveable" : "fixed"))
+     << std::endl;
+  os << "  bitmaps: " << ((magic & kBitMapFlag) ? "enabled" : "disabled")
      << std::endl;
   os << "  hwm: " << hwm << " " << ToAddress(hwm) << std::endl;
   os << "  full_size: " << full_size << std::endl;
@@ -161,12 +162,10 @@ void PayloadBuffer::Dump(std::ostream &os) {
   os << "  free_list: " << free_list << " " << ToAddress(free_list)
      << std::endl;
   os << "  message: " << message << " " << ToAddress(message) << std::endl;
-#if SMALL_BLOCK_ALLOCATOR
-  for (int i = 0; i < kNumSmallBlocks; i++) {
+  for (int i = 0; i < kNumBitmapRuns; i++) {
     os << "  bitmaps[" << i << "]: " << bitmaps[i] << " "
        << ToAddress(bitmaps[i]) << std::endl;
   }
-#endif
   DumpFreeList(os);
 }
 
@@ -195,7 +194,7 @@ void PayloadBuffer::CheckFreeList() {
 void PayloadBuffer::InitFreeList() {
   char *end_of_header = reinterpret_cast<char *>(this + 1);
   size_t header_size = sizeof(PayloadBuffer);
-  if (magic == kMovableBufferMagic) {
+  if (IsMoveable()) {
     end_of_header +=
         sizeof(Resizer *); // Room for resizer function for movable buffers.
     header_size += sizeof(Resizer *);
@@ -252,14 +251,12 @@ void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
   if (n == 0) {
     return nullptr;
   }
-#if SMALL_BLOCK_ALLOCATOR
-  if (enable_small_block) {
-    int small_block_index = SmallBlockIndex(n);
+  if (enable_small_block && (*buffer)->BitmapsEnabled()) {
+    int small_block_index = BitmapRunIndex(n);
     if (small_block_index >= 0) {
       return AllocateSmallBlock(buffer, n, small_block_index, clear);
     }
   }
-#endif
   n = AlignSize(n, alignment); // Aligned.
   size_t full_length = n + sizeof(uint32_t);
   FreeBlockHeader *free_block = (*buffer)->FreeList();
@@ -423,18 +420,16 @@ void PayloadBuffer::Free(void *p) {
   // An allocated block has its length immediately before its address.
   uint32_t alloc_length =
       *(reinterpret_cast<uint32_t *>(p) - 1); // Length of allocated block.
-#if SMALL_BLOCK_ALLOCATOR
-  int small_block_index = SmallBlockIndexFromEncodedSize(alloc_length);
+  int small_block_index =
+      BitmapsEnabled() ? BitmapRunIndexFromEncodedSize(alloc_length) : -1;
   if (small_block_index >= 0) {
-    int bitnum =
-        (alloc_length >> kSmallBlockBitNumShift) & kSmallBlockBitNumMask;
+    int bitnum = (alloc_length >> kBitmpRunBitNumShift) & kBitmapRunBitNumMask;
     int bitmap_index =
-        (alloc_length >> kSmallBlockBitMapShift) & kSmallBlockBitMapMask;
+        (alloc_length >> kBitmapRunBitMapShift) & kBitmapRunBitMapMask;
 
     FreeSmallBlock(this, small_block_index, bitmap_index, bitnum);
     return;
   }
-#endif
   // Point to real start of allocated block.
   FreeBlockHeader *alloc_header =
       reinterpret_cast<FreeBlockHeader *>(uintptr_t(p) - sizeof(uint32_t));
@@ -565,22 +560,21 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
   // The allocated block has its length immediately prior to its address.
   uint32_t *len_ptr = reinterpret_cast<uint32_t *>(p) - 1;
   uint32_t orig_length = *len_ptr;
-#if SMALL_BLOCK_ALLOCATOR
-  if (enable_small_block) {
-    int small_block_index = SmallBlockIndexFromEncodedSize(orig_length);
+  if (enable_small_block && (*buffer)->BitmapsEnabled()) {
+    int small_block_index = BitmapRunIndexFromEncodedSize(orig_length);
     if (small_block_index >= 0) {
       int decoded_length =
-          (orig_length >> kSmallBlockSizeShift) & kSmallBlockSizeMask;
+          (orig_length >> kBitmapRunSizeShift) & kBitmapRunSizeMask;
       // If the new size is in the same small block index we can just return the
       // original block.
-      if (SmallBlockIndex(n) == small_block_index) {
+      if (BitmapRunIndex(n) == small_block_index) {
         int bitnum =
-            (orig_length >> kSmallBlockBitNumShift) & kSmallBlockBitNumMask;
+            (orig_length >> kBitmpRunBitNumShift) & kBitmapRunBitNumMask;
         int bitmap_index =
-            (orig_length >> kSmallBlockBitMapShift) & kSmallBlockBitMapMask;
-        int encoded_size =
-            (1 << 31) | (bitmap_index << kSmallBlockBitMapShift) |
-            (bitnum << kSmallBlockBitNumShift) | (n & kSmallBlockSizeMask);
+            (orig_length >> kBitmapRunBitMapShift) & kBitmapRunBitMapMask;
+        int encoded_size = (1 << 31) | (bitmap_index << kBitmapRunBitMapShift) |
+                           (bitnum << kBitmpRunBitNumShift) |
+                           (n & kBitmapRunSizeMask);
 
         *len_ptr = encoded_size;
         if (clear && n > decoded_length) {
@@ -604,7 +598,6 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
       return newp;
     }
   }
-#endif
   FreeBlockHeader *alloc_block =
       reinterpret_cast<FreeBlockHeader *>(uintptr_t(p) - sizeof(uint32_t));
   uintptr_t alloc_addr = (uintptr_t)p;
@@ -681,9 +674,8 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
   (*buffer)->Free(p);
   return newp;
 }
-#if SMALL_BLOCK_ALLOCATOR
 bool PayloadBuffer::PrimeBitmapAllocator(PayloadBuffer **self, size_t size) {
-  int index = SmallBlockIndex(size);
+  int index = BitmapRunIndex(size);
   if (index < 0) {
     return true;
   }
@@ -698,7 +690,7 @@ bool PayloadBuffer::PrimeBitmapAllocator(PayloadBuffer **self, size_t size) {
   VectorHeader *hdr = (*self)->ToAddress<VectorHeader>((*self)->bitmaps[index]);
 
   BitMapRun *run = PayloadBuffer::AllocateBitMapRun(
-      self, small_block_infos[index].size, small_block_infos[index].num);
+      self, bitmp_run_infos[index].size, bitmp_run_infos[index].num);
   if (run == nullptr) {
     return false;
   }
@@ -776,9 +768,9 @@ void *BitMapRun::Allocate(PayloadBuffer **pb, int index, uint32_t n, int size,
       // Write the encoded size of the block into the preceding 4 bytes.
       uint32_t *p = reinterpret_cast<uint32_t *>(addr) - 1;
       // Encode the length.
-      int encoded_size = (1 << 31) | (i << kSmallBlockBitMapShift) |
-                         (bit << kSmallBlockBitNumShift) |
-                         (size & kSmallBlockSizeMask);
+      int encoded_size = (1 << 31) | (i << kBitmapRunBitMapShift) |
+                         (bit << kBitmpRunBitNumShift) |
+                         (size & kBitmapRunSizeMask);
       *p = encoded_size;
       if (clear) {
         memset(addr, 0, size);
@@ -811,13 +803,12 @@ void BitMapRun::Free(PayloadBuffer *pb, int index, int bitmap_index,
 
 void *PayloadBuffer::AllocateSmallBlock(PayloadBuffer **pb, uint32_t size,
                                         int index, bool clear) {
-  return BitMapRun::Allocate(pb, index, size, small_block_infos[index].size,
-                             small_block_infos[index].num, clear);
+  return BitMapRun::Allocate(pb, index, size, bitmp_run_infos[index].size,
+                             bitmp_run_infos[index].num, clear);
 }
 
 void PayloadBuffer::FreeSmallBlock(PayloadBuffer *pb, int index,
                                    int bitmap_index, int bitnum) {
   BitMapRun::Free(pb, index, bitmap_index, bitnum);
 }
-#endif
 } // namespace toolbelt
