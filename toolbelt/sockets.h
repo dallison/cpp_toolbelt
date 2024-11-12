@@ -116,7 +116,7 @@ public:
 
   absl::StatusOr<std::vector<char>> ReceiveVariableLengthMessage(
       co::Coroutine *c = nullptr);
-      
+
   // For SendMessage, the buffer pointer must be 4 bytes beyond
   // the actual buffer start, which must be length+4 bytes
   // long.  We write exactly length+4 bytes to the socket starting
@@ -208,6 +208,9 @@ public:
 
   absl::Status Bind(const InetAddress &addr);
 
+  absl::Status JoinMulticastGroup(const InetAddress &addr);
+  absl::Status LeaveMulticastGroup(const InetAddress &addr);
+
   // NOTE: Read and Write may or may not work on UDP sockets.  Use SendTo and
   // Receive for datagrams.
   absl::Status SendTo(const InetAddress &addr, const void *buffer,
@@ -218,6 +221,7 @@ public:
                                       size_t buflen,
                                       co::Coroutine *c = nullptr);
   absl::Status SetBroadcast();
+  absl::Status SetMulticastLoop();
 };
 
 // A TCP based socket.
