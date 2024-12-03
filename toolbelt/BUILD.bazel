@@ -28,11 +28,11 @@ cc_library(
         "payload_buffer.h",
     ],
     deps = [
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/strings:str_format",
-        "@com_google_absl//absl/types:span",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/types:span",
         "@coroutines//:co",
     ],
 )
@@ -43,10 +43,10 @@ cc_test(
     srcs = ["fd_test.cc"],
     deps = [
         ":toolbelt",
-        "@com_google_absl//absl/hash:hash_testing",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_googletest//:gtest_main",
+        "@abseil-cpp//absl/hash:hash_testing",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
     ],
 )
 
@@ -56,11 +56,11 @@ cc_test(
     srcs = ["table_test.cc"],
     deps = [
         ":toolbelt",
-        "@com_google_absl//absl/hash:hash_testing",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings:str_format",
-        "@com_google_googletest//:gtest_main",
+        "@abseil-cpp//absl/hash:hash_testing",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:str_format",
+        "@googletest//:gtest_main",
     ],
 )
 
@@ -70,10 +70,10 @@ cc_test(
     srcs = ["pipe_test.cc"],
     deps = [
         ":toolbelt",
-        "@com_google_absl//absl/hash:hash_testing",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_googletest//:gtest_main",
+        "@abseil-cpp//absl/hash:hash_testing",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
     ],
 )
 
@@ -83,10 +83,10 @@ cc_test(
     srcs = ["sockets_test.cc"],
     deps = [
         ":toolbelt",
-        "@com_google_absl//absl/hash:hash_testing",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_googletest//:gtest_main",
+        "@abseil-cpp//absl/hash:hash_testing",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
     ],
 )
 
@@ -96,7 +96,7 @@ cc_test(
         "payload_buffer_test.cc",
     ],
     deps = [
-        "@com_google_googletest//:gtest",
+        "@googletest//:gtest",
         ":toolbelt",
     ],
 )
