@@ -96,7 +96,7 @@ cc_test(
         "payload_buffer_test.cc",
     ],
     deps = [
-        "@com_google_googletest//:gtest",
         ":toolbelt",
+        "@com_google_googletest//:gtest",
     ],
 )
