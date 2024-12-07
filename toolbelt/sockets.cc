@@ -589,7 +589,7 @@ absl::Status UDPSocket::JoinMulticastGroup(const InetAddress &addr) {
     ip_mreqn membership_request {
         .imr_multiaddr = addr.GetAddress().sin_addr,
         .imr_address = {INADDR_ANY},
-        .imr_ifindex = {0}
+        .imr_ifindex = 0
     };
     int setsockopt_ret = ::setsockopt(fd_.Fd(),
                                      IPPROTO_IP,
@@ -609,7 +609,7 @@ absl::Status UDPSocket::LeaveMulticastGroup(const InetAddress &addr) {
   ip_mreqn membership_request {
     .imr_multiaddr = addr.GetAddress().sin_addr,
     .imr_address = { INADDR_ANY },
-    .imr_ifindex = { 0 }
+    .imr_ifindex = 0
   };
   int setsockopt_ret = ::setsockopt(fd_.Fd(),
                                     IPPROTO_IP,
