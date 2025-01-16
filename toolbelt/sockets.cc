@@ -6,6 +6,7 @@
 
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <netinet/in.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <sys/socket.h>
@@ -553,7 +554,7 @@ absl::StatusOr<TCPSocket> TCPSocket::Accept(co::Coroutine *c) {
 }
 
 // UDP socket
-UDPSocket::UDPSocket() : NetworkSocket(socket(AF_INET, SOCK_DGRAM, 0)) {}
+UDPSocket::UDPSocket() : NetworkSocket(socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) {}
 
 absl::Status UDPSocket::Bind(const InetAddress &addr) {
   int e =
@@ -565,8 +566,62 @@ absl::Status UDPSocket::Bind(const InetAddress &addr) {
         absl::StrFormat("Failed to bind UDP socket to %s: %s",
                         addr.ToString().c_str(), strerror(errno)));
   }
+
   bound_address_ = addr;
+
+  if (addr.Port() == 0) {
+    // An ephemeral port was request, find out what the assigned port is
+    sockaddr_in address;
+    socklen_t address_size = sizeof(address);
+    if (getsockname(fd_.Fd(), reinterpret_cast<sockaddr *>(&address), &address_size) != 0) {
+        return absl::InternalError(
+            absl::StrFormat("Failed to get ephemeral port assignment for %s: %s",
+                addr.ToString().c_str(), strerror(errno)));
+    }
+    bound_address_.SetPort(ntohs(address.sin_port));
+  }
+
   connected_ = true; // UDP sockets are always connected when bound.
+  return absl::OkStatus();
+}
+
+absl::Status UDPSocket::JoinMulticastGroup(const InetAddress &addr) {
+    ip_mreqn membership_request {
+        .imr_multiaddr = addr.GetAddress().sin_addr,
+        .imr_address = {INADDR_ANY},
+        .imr_ifindex = 0
+    };
+    int setsockopt_ret = ::setsockopt(fd_.Fd(),
+                                     IPPROTO_IP,
+                                     IP_ADD_MEMBERSHIP,
+                                     &membership_request,
+                                     sizeof(membership_request));
+    if (setsockopt_ret != 0) {
+        fd_.Reset();
+        return absl::InternalError(
+            absl::StrFormat("Failed to join multicast group %s: %s",
+                           addr.ToString().c_str(), strerror(errno)));
+    }
+    return absl::OkStatus();
+}
+
+absl::Status UDPSocket::LeaveMulticastGroup(const InetAddress &addr) {
+  ip_mreqn membership_request {
+    .imr_multiaddr = addr.GetAddress().sin_addr,
+    .imr_address = { INADDR_ANY },
+    .imr_ifindex = 0
+  };
+  int setsockopt_ret = ::setsockopt(fd_.Fd(),
+                                    IPPROTO_IP,
+                                    IP_DROP_MEMBERSHIP,
+                                    &membership_request,
+                                    sizeof(membership_request));
+  if (setsockopt_ret != 0) {
+    fd_.Reset();
+    return absl::InternalError(
+        absl::StrFormat("Failed to join multicast group %s: %s",
+                        addr.ToString().c_str(), strerror(errno)));
+  }
   return absl::OkStatus();
 }
 
@@ -576,6 +631,15 @@ absl::Status UDPSocket::SetBroadcast() {
   if (e != 0) {
     return absl::InternalError(absl::StrFormat(
         "Unable to set broadcast on UDP socket: %s", strerror(errno)));
+  }
+  return absl::OkStatus();
+}
+
+absl::Status UDPSocket::SetMulticastLoop() {
+  constexpr int enable = 1;
+  if (setsockopt(fd_.Fd(), IPPROTO_IP, IP_MULTICAST_LOOP, &enable, sizeof(enable)) != 0) {
+      return absl::InternalError(absl::StrFormat(
+          "Unable to set multicast loop on UDP socket: %s", strerror(errno)));
   }
   return absl::OkStatus();
 }
