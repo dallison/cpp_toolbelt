@@ -227,6 +227,14 @@ struct PayloadBuffer {
     return (p[word] & (1 << bit)) != 0;
   }
 
+  static uint32_t DecodeSize(BufferOffset* addr) {
+    uint32_t *p = reinterpret_cast<uint32_t *>(addr) - 1;
+    if ((*p & (1U << 31)) == 0) {
+      return *p;
+    }
+    return *p & kBitmapRunSizeMask;
+  }
+
   template <typename MessageType>
   static MessageType *NewMessage(PayloadBuffer **self, uint32_t size,
                                  BufferOffset offset);
@@ -472,7 +480,7 @@ inline void PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
     // Vector has some values in it.  Retrieve the total size from
     // the allocated block header (before the start of the memory)
     uint32_t *block = (*self)->ToAddress<uint32_t>(hdr->data);
-    uint32_t current_size = block[-1];
+    uint32_t current_size = DecodeSize(block);
     if (current_size == total_size) {
       // Need to double the size of the memory.
       void *vecp = Realloc(self, block, 2 * hdr->num_elements * sizeof(T), 8,
@@ -499,7 +507,7 @@ inline void PayloadBuffer::VectorReserve(PayloadBuffer **self,
     // Vector has some values in it.  Retrieve the total size from
     // the allocated block header (before the start of the memory)
     uint32_t *block = (*self)->ToAddress<uint32_t>(hdr->data);
-    uint32_t current_size = block[-1];
+    uint32_t current_size = DecodeSize(block);
     if (current_size < n * sizeof(T)) {
       // Need to expand the memory to the size given.
       void *vecp =
@@ -519,7 +527,7 @@ inline void PayloadBuffer::VectorResize(PayloadBuffer **self, VectorHeader *hdr,
     // Vector has some values in it.  Retrieve the total size from
     // the allocated block header (before the start of the memory)
     uint32_t *block = (*self)->ToAddress<uint32_t>(hdr->data);
-    uint32_t current_size = block[-1];
+    uint32_t current_size = DecodeSize(block);
     if (current_size < n * sizeof(T)) {
       // Need to expand the memory to the size given.
       void *vecp = Realloc(self, block, n * sizeof(T), 8);

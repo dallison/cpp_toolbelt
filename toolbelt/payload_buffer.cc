@@ -14,7 +14,7 @@ static constexpr struct BitmapRunInfo {
 };
 
 inline int BitmapRunIndex(uint32_t n) {
-  for (int i = 0; i < kNumBitmapRuns; i++) {
+  for (size_t i = 0; i < kNumBitmapRuns; i++) {
     if (n <= bitmp_run_infos[i].size) {
       return i;
     }
@@ -23,12 +23,12 @@ inline int BitmapRunIndex(uint32_t n) {
 }
 
 inline int BitmapRunIndexFromEncodedSize(uint32_t n) {
-  if ((n & (1 << 31)) == 0) {
+  if ((n & (1U << 31)) == 0) {
     // Not a small block since the high bit is not set.
     return -1;
   }
   n &= kBitmapRunSizeMask;
-  for (int i = 0; i < kNumBitmapRuns; i++) {
+  for (size_t i = 0; i < kNumBitmapRuns; i++) {
     if (n <= bitmp_run_infos[i].size) {
       return i;
     }
@@ -572,7 +572,7 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
             (orig_length >> kBitmpRunBitNumShift) & kBitmapRunBitNumMask;
         int bitmap_index =
             (orig_length >> kBitmapRunBitMapShift) & kBitmapRunBitMapMask;
-        int encoded_size = (1 << 31) | (bitmap_index << kBitmapRunBitMapShift) |
+        int encoded_size = (1U << 31) | (bitmap_index << kBitmapRunBitMapShift) |
                            (bitnum << kBitmpRunBitNumShift) |
                            (n & kBitmapRunSizeMask);
 
@@ -757,7 +757,7 @@ void *BitMapRun::Allocate(PayloadBuffer **pb, int index, uint32_t n, int size,
       int bit = ffs(~run->bits);
       assert(bit > 0 && bit <= run->num);
       bit--; // Convert to 0-based index.
-      run->bits |= 1 << bit;
+      run->bits |= 1U << bit;
       run->free--;
 
       // The address of the block is after the header and indexed by the bit
@@ -768,7 +768,7 @@ void *BitMapRun::Allocate(PayloadBuffer **pb, int index, uint32_t n, int size,
       // Write the encoded size of the block into the preceding 4 bytes.
       uint32_t *p = reinterpret_cast<uint32_t *>(addr) - 1;
       // Encode the length.
-      int encoded_size = (1 << 31) | (i << kBitmapRunBitMapShift) |
+      int encoded_size = (1U << 31) | (i << kBitmapRunBitMapShift) |
                          (bit << kBitmpRunBitNumShift) |
                          (size & kBitmapRunSizeMask);
       *p = encoded_size;
@@ -797,7 +797,7 @@ void BitMapRun::Free(PayloadBuffer *pb, int index, int bitmap_index,
   assert(hdr != nullptr);
   BitMapRun *run =
       pb->ToAddress<BitMapRun>(pb->VectorGet<BufferOffset>(hdr, bitmap_index));
-  run->bits &= ~(1 << bitnum);
+  run->bits &= ~(1U << bitnum);
   run->free++;
 }
 
