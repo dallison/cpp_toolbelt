@@ -15,7 +15,7 @@ TEST(BufferTest, Simple) {
   pb->Dump(std::cout);
   toolbelt::Hexdump(pb, 64);
 
-  void *addr = PayloadBuffer::Allocate(&pb, 32, 4);
+  void *addr = PayloadBuffer::Allocate(&pb, 32);
   memset(addr, 0xda, 32);
   pb->Dump(std::cout);
   std::cout << "Allocated " << addr << std::endl;
@@ -29,13 +29,13 @@ TEST(BufferTest, TwoAllocs) {
   pb->Dump(std::cout);
   toolbelt::Hexdump(pb, 64);
 
-  void *addr = PayloadBuffer::Allocate(&pb, 32, 4);
+  void *addr = PayloadBuffer::Allocate(&pb, 32);
   memset(addr, 0xda, 32);
   pb->Dump(std::cout);
   std::cout << "Allocated " << addr << std::endl;
   toolbelt::Hexdump(pb, pb->hwm);
 
-  addr = PayloadBuffer::Allocate(&pb, 64, 4);
+  addr = PayloadBuffer::Allocate(&pb, 64);
   memset(addr, 0xda, 64);
   pb->Dump(std::cout);
   std::cout << "Allocated " << addr << std::endl;
@@ -49,13 +49,13 @@ TEST(BufferTest, Free) {
   pb->Dump(std::cout);
   toolbelt::Hexdump(pb, 64);
 
-  void *addr1 = PayloadBuffer::Allocate(&pb, 32, 4);
+  void *addr1 = PayloadBuffer::Allocate(&pb, 32);
   memset(addr1, 0xda, 32);
   pb->Dump(std::cout);
   std::cout << "Allocated " << addr1 << std::endl;
   toolbelt::Hexdump(pb, pb->hwm);
 
-  void *addr2 = PayloadBuffer::Allocate(&pb, 64, 4);
+  void *addr2 = PayloadBuffer::Allocate(&pb, 64);
   memset(addr2, 0xda, 64);
 
   pb->Free(addr1);
@@ -72,19 +72,19 @@ TEST(BufferTest, FreeThenAlloc) {
   pb->Dump(std::cout);
   toolbelt::Hexdump(pb, 64);
 
-  void *addr1 = PayloadBuffer::Allocate(&pb, 32, 4);
+  void *addr1 = PayloadBuffer::Allocate(&pb, 32);
   memset(addr1, 0xda, 32);
   pb->Dump(std::cout);
   std::cout << "Allocated " << addr1 << std::endl;
   toolbelt::Hexdump(pb, pb->hwm);
 
-  void *addr2 = PayloadBuffer::Allocate(&pb, 64, 4);
+  void *addr2 = PayloadBuffer::Allocate(&pb, 64);
   memset(addr2, 0xda, 64);
 
   pb->Free(addr1);
 
   // 20 bytes fits into the free block.
-  void *addr3 = PayloadBuffer::Allocate(&pb, 20, 4);
+  void *addr3 = PayloadBuffer::Allocate(&pb, 20);
   memset(addr3, 0xda, 20);
 
   pb->Dump(std::cout);
@@ -97,12 +97,12 @@ TEST(BufferTest, SmallBlockAllocSimple) {
   char *buffer = (char *)malloc(4096);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
 
-  void *addr = PayloadBuffer::Allocate(&pb, 16, 4);
+  void *addr = PayloadBuffer::Allocate(&pb, 16);
   ASSERT_NE(nullptr, addr);
   pb->Free(addr);
 
   // Allocate again and make sure it's the same address.
-  void *addr2 = PayloadBuffer::Allocate(&pb, 16, 4);
+  void *addr2 = PayloadBuffer::Allocate(&pb, 16);
   ASSERT_EQ(addr, addr2);
 }
 
@@ -113,25 +113,25 @@ TEST(BufferTest, SmallBlockAlloc) {
   // Small block sizes are 16, 32, 64 and 128.
   // There are 16 16-byte blocks per run.
   for (int i = 0; i < 50; i++) {
-    void *addr = PayloadBuffer::Allocate(&pb, 10, 4);
+    void *addr = PayloadBuffer::Allocate(&pb, 10);
     memset(addr, 0xda, 10);
   }
 
   // There are 8 32-byte blocks per run.
   for (int i = 0; i < 20; i++) {
-    void *addr = PayloadBuffer::Allocate(&pb, 30, 4);
+    void *addr = PayloadBuffer::Allocate(&pb, 30);
     memset(addr, 0xdb, 30);
   }
 
   // There are 4 64-byte blocks per run.
   for (int i = 0; i < 10; i++) {
-    void *addr = PayloadBuffer::Allocate(&pb, 50, 4);
+    void *addr = PayloadBuffer::Allocate(&pb, 50);
     memset(addr, 0xdc, 50);
   }
 
   // There are 2 128-byte blocks per run.
   for (int i = 0; i < 5; i++) {
-    void *addr = PayloadBuffer::Allocate(&pb, 100, 4);
+    void *addr = PayloadBuffer::Allocate(&pb, 100);
     memset(addr, 0xdd, 100);
   }
   pb->Dump(std::cout);
@@ -147,7 +147,7 @@ TEST(BufferTest, SmallBlockAllocFree) {
   std::vector<size_t> sizes = {10, 30, 50, 100, 150};
   for (int i = 0; i < 50; i++) {
     size_t size = sizes[i % sizes.size()];
-    void *addr = PayloadBuffer::Allocate(&pb, size, 4);
+    void *addr = PayloadBuffer::Allocate(&pb, size);
     memset(addr, 0xda, size);
     blocks.push_back(addr);
   }
@@ -161,7 +161,7 @@ TEST(BufferTest, SmallBlockAllocFree) {
   for (int i = 0; i < blocks.size(); i++) {
     if (i % 5 == 0) {
       size_t size = sizes[i % sizes.size()];
-      void *addr = PayloadBuffer::Allocate(&pb, size, 4);
+      void *addr = PayloadBuffer::Allocate(&pb, size);
       memset(addr, 0xda, size);
       blocks[i] = addr;
     }
@@ -199,25 +199,25 @@ TEST(BufferTest, BestCasePerformance) {
 
     // 16 byte blocks.
     for (int i = 0; i < 32; i++) {
-      void *addr = PayloadBuffer::Allocate(&pb, 10, 4, false);
+      void *addr = PayloadBuffer::Allocate(&pb, 10, false);
       small_blocks.push_back(addr);
     }
 
     // 32 byte blocks.
     for (int i = 0; i < 16; i++) {
-      void *addr = PayloadBuffer::Allocate(&pb, 28, 4, false);
+      void *addr = PayloadBuffer::Allocate(&pb, 28, false);
       small_blocks.push_back(addr);
     }
 
     // 64 byte blocks.
     for (int i = 0; i < 8; i++) {
-      void *addr = PayloadBuffer::Allocate(&pb, 60, 4, false);
+      void *addr = PayloadBuffer::Allocate(&pb, 60, false);
       small_blocks.push_back(addr);
     }
 
     // 128 byte blocks.
     for (int i = 0; i < 4; i++) {
-      void *addr = PayloadBuffer::Allocate(&pb, 120, 4, false);
+      void *addr = PayloadBuffer::Allocate(&pb, 120, false);
       small_blocks.push_back(addr);
     }
 
@@ -239,25 +239,25 @@ TEST(BufferTest, BestCasePerformance) {
 
     // 16 byte blocks.
     for (int i = 0; i < 32; i++) {
-      void *addr = PayloadBuffer::Allocate(&pb, 10, 4, false, false);
+      void *addr = PayloadBuffer::Allocate(&pb, 10, false, false);
       large_blocks.push_back(addr);
     }
 
     // 32 byte blocks.
     for (int i = 0; i < 16; i++) {
-      void *addr = PayloadBuffer::Allocate(&pb, 28, 4, false, false);
+      void *addr = PayloadBuffer::Allocate(&pb, 28, false, false);
       large_blocks.push_back(addr);
     }
 
     // 64 byte blocks.
     for (int i = 0; i < 8; i++) {
-      void *addr = PayloadBuffer::Allocate(&pb, 60, 4, false, false);
+      void *addr = PayloadBuffer::Allocate(&pb, 60, false, false);
       large_blocks.push_back(addr);
     }
 
     // 128 byte blocks.
     for (int i = 0; i < 4; i++) {
-      void *addr = PayloadBuffer::Allocate(&pb, 120, 4, false, false);
+      void *addr = PayloadBuffer::Allocate(&pb, 120, false, false);
       large_blocks.push_back(addr);
     }
 
@@ -310,7 +310,7 @@ TEST(BufferTest, TypicalPerformance) {
     for (int j = 0; j < 1000; j++) {
       int prev_size = int(small_blocks.size());
       for (int i = 0; i < kNumBlocks; i++) {
-        void *addr = PayloadBuffer::Allocate(&pb, 10, 4, false);
+        void *addr = PayloadBuffer::Allocate(&pb, 10, false);
         small_blocks.push_back(addr);
       }
       // Free some of the blocks.
@@ -337,7 +337,7 @@ TEST(BufferTest, TypicalPerformance) {
     for (int j = 0; j < 1000; j++) {
       int prev_size = int(large_blocks.size());
       for (int i = 0; i < kNumBlocks; i++) {
-        void *addr = PayloadBuffer::Allocate(&pb, 10, 4, false, /*enable_small_block=*/false);
+        void *addr = PayloadBuffer::Allocate(&pb, 10, false, /*enable_small_block=*/false);
         large_blocks.push_back(addr);
       }
       // Free some of the blocks.
@@ -367,7 +367,7 @@ TEST(BufferTest, Many) {
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
   std::vector<void *> addrs =
-      PayloadBuffer::AllocateMany(&pb, 100, 10, 8, true);
+      PayloadBuffer::AllocateMany(&pb, 100, 10, true);
   ASSERT_EQ(10, addrs.size());
   // Print the addresses.
   for (auto addr : addrs) {
@@ -505,7 +505,7 @@ TEST(BufferTest, Resizeable) {
   pb->Dump(std::cout);
   toolbelt::Hexdump(pb, 64);
 
-  void *addr = PayloadBuffer::Allocate(&pb, 130, 4);
+  void *addr = PayloadBuffer::Allocate(&pb, 130);
   ASSERT_NE(nullptr, addr);
   ASSERT_FALSE(resized);
 
@@ -515,7 +515,7 @@ TEST(BufferTest, Resizeable) {
   toolbelt::Hexdump(pb, pb->hwm);
 
   // This will cause a resize.
-  addr = PayloadBuffer::Allocate(&pb, 256, 4);
+  addr = PayloadBuffer::Allocate(&pb, 256);
   ASSERT_NE(nullptr, addr);
   ASSERT_TRUE(resized);
   memset(addr, 0xdd, 128);

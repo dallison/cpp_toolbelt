@@ -234,7 +234,7 @@ uint32_t PayloadBuffer::TakeStartOfFreeBlock(FreeBlockHeader *block,
       prev->next = block->next;
     }
     // Allocate whole block.
-    num_bytes = block->length - sizeof(uint32_t);
+    num_bytes = block->length - sizeof(uint64_t);
     UpdateHWM(block->next + sizeof(FreeBlockHeader));
   }
   return num_bytes;
@@ -246,7 +246,7 @@ inline uint32_t AlignSize(uint32_t s,
 }
 
 void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
-                              uint32_t alignment, bool clear,
+                              bool clear,
                               bool enable_small_block) {
   if (n == 0) {
     return nullptr;
@@ -257,8 +257,8 @@ void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
       return AllocateSmallBlock(buffer, n, small_block_index, clear);
     }
   }
-  n = AlignSize(n, alignment); // Aligned.
-  size_t full_length = n + sizeof(uint32_t);
+  n = AlignSize(n, 8); // Aligned.
+  size_t full_length = n + sizeof(uint64_t);
   FreeBlockHeader *free_block = (*buffer)->FreeList();
   FreeBlockHeader *prev = nullptr;
   for (;;) {
@@ -317,19 +317,19 @@ void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
           prev->next = (*buffer)->ToOffset(new_block);
         }
       }
-      return Allocate(buffer, n, alignment, clear);
+      return Allocate(buffer, n, clear);
     }
     if (free_block->length >= full_length) {
       // Free block is big enough.  If there's enough room for the free block
       // header, take the lower part of the free block and keep the remainder
       // in the free list.
       n = (*buffer)->TakeStartOfFreeBlock(free_block, n, full_length, prev);
-      size_t *newblock = (size_t *)free_block; // Start of new block.
+      uint64_t *newblock = (uint64_t *)free_block; // Start of new block.
       *newblock = n;                           // Size of allocated block.
       void *addr =
-          reinterpret_cast<void *>(uintptr_t(free_block) + sizeof(uint32_t));
+          reinterpret_cast<void *>(uintptr_t(free_block) + sizeof(uint64_t));
       if (clear) {
-        memset(addr, 0, full_length - 4);
+        memset(addr, 0, full_length - sizeof(uint64_t));
       }
       return addr;
     }
@@ -340,11 +340,10 @@ void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
 
 std::vector<void *> PayloadBuffer::AllocateMany(PayloadBuffer **buffer,
                                                 uint32_t size, uint32_t n,
-                                                uint32_t alignment,
                                                 bool clear) {
   // Calculate space for the whole block.  This is n*aligned(size) +
   // n*sizeof(uint32_t).
-  size_t full_length = n * (AlignSize(size, alignment) + sizeof(uint32_t));
+  size_t full_length = n * (AlignSize(size, 8) + sizeof(uint64_t));
   void *start = Allocate(buffer, full_length, 8, clear);
   if (start == nullptr) {
     return {}; // No memory.
@@ -355,13 +354,13 @@ std::vector<void *> PayloadBuffer::AllocateMany(PayloadBuffer **buffer,
   // Divide the block into freeable chunks, each of which is align(size) bytes
   // long.  The length of each block is stored immediately before the block.
   std::vector<void *> blocks;
-  uint32_t *p = reinterpret_cast<uint32_t *>(start);
+  uint64_t *p = reinterpret_cast<uint64_t *>(start);
   for (uint32_t i = 0; i < n; i++) {
-    uint32_t len = AlignSize(size, alignment);
+    uint64_t len = AlignSize(size, alignment);
     p[0] = len;
     blocks.push_back(reinterpret_cast<void *>(p + 1));
     p = reinterpret_cast<uint32_t *>(reinterpret_cast<char *>(p) + len +
-                                     sizeof(uint32_t));
+                                     sizeof(uint64_t));
   }
   return blocks;
 }
@@ -378,12 +377,12 @@ void PayloadBuffer::MergeWithAboveIfPossible(FreeBlockHeader *alloc_block,
     // Merge with block above.
     alloc_header->next = free_block->next;
     alloc_header->length =
-        alloc_length + sizeof(BufferOffset) + free_block->length;
+        alloc_length + sizeof(uint64_t) + free_block->length;
     *next_ptr = ToOffset(alloc_header);
   } else {
     // Not adjacent to above; add to free list.
     // t points to the allocated block header which has its length set.
-    alloc_header->length += sizeof(BufferOffset);
+    alloc_header->length += sizeof(uint64_t);
     alloc_header->next = ToOffset(free_block);
     *next_ptr = ToOffset(alloc_header);
   }
@@ -418,8 +417,8 @@ void PayloadBuffer::Free(void *p) {
     return;
   }
   // An allocated block has its length immediately before its address.
-  uint32_t alloc_length =
-      *(reinterpret_cast<uint32_t *>(p) - 1); // Length of allocated block.
+  uint64_t alloc_length =
+      *(reinterpret_cast<uint64_t *>(p) - 1); // Length of allocated block.
   int small_block_index =
       BitmapsEnabled() ? BitmapRunIndexFromEncodedSize(alloc_length) : -1;
   if (small_block_index >= 0) {
@@ -432,14 +431,14 @@ void PayloadBuffer::Free(void *p) {
   }
   // Point to real start of allocated block.
   FreeBlockHeader *alloc_header =
-      reinterpret_cast<FreeBlockHeader *>(uintptr_t(p) - sizeof(uint32_t));
+      reinterpret_cast<FreeBlockHeader *>(uintptr_t(p) - sizeof(uint64_t));
 
   // Insert into free list by searching for the appropriate point in memory
   // sorted by address.
   FreeBlockHeader *free_block = FreeList();
   if (free_block == nullptr) {
     // No free list, this block becomes the only block.
-    alloc_header->length = alloc_length + sizeof(size_t);
+    alloc_header->length = alloc_length + sizeof(uint64_t);
     alloc_header->next = 0;
     free_list = ToOffset(alloc_header);
     return;
@@ -481,28 +480,28 @@ void PayloadBuffer::Free(void *p) {
   }
   // Can't merge, insert a new free block at end.
   InsertNewFreeBlockAtEnd(alloc_header, prev,
-                          alloc_header->length + sizeof(BufferOffset));
+                          alloc_header->length + sizeof(uint64_t));
 }
 
 void PayloadBuffer::ShrinkBlock(FreeBlockHeader *alloc_block,
                                 uint32_t orig_length, uint32_t new_length,
-                                uint32_t *len_ptr) {
+                                uint64_t *len_ptr) {
   assert(new_length < orig_length);
   size_t rem = orig_length - new_length;
   if (rem >= sizeof(FreeBlockHeader)) {
     // If we are freeing enough to make a free block, free it, otherwise
     // there's nothing we can do and we just keep the block the same size.
     *len_ptr = new_length; // Change size of block.
-    uint32_t *newp = reinterpret_cast<uint32_t *>(
-        reinterpret_cast<char *>(alloc_block) + sizeof(uint32_t) + new_length);
-    *newp = rem - sizeof(uint32_t); // Add header for free.
+    uint64_t *newp = reinterpret_cast<uint64_t *>(
+        reinterpret_cast<char *>(alloc_block) + sizeof(uint64_t) + new_length);
+    *newp = rem - sizeof(uint64_t); // Add header for free.
     Free(newp + 1);
   }
 }
 
 void PayloadBuffer::ExpandIntoFreeBlockAbove(
     FreeBlockHeader *free_block, uint32_t new_length, uint32_t len_diff,
-    uint32_t free_remaining, uint32_t *len_ptr, BufferOffset *next_ptr,
+    uint32_t free_remaining, uint64_t *len_ptr, BufferOffset *next_ptr,
     bool clear) {
   assert(free_remaining > sizeof(FreeBlockHeader));
   FreeBlockHeader *next = ToAddress<FreeBlockHeader>(free_block->next);
@@ -520,7 +519,7 @@ void PayloadBuffer::ExpandIntoFreeBlockAbove(
   }
 }
 
-uint32_t *PayloadBuffer::MergeWithFreeBlockBelow(
+uint64_t *PayloadBuffer::MergeWithFreeBlockBelow(
     void *alloc_block, FreeBlockHeader *prev, FreeBlockHeader *free_block,
     uint32_t new_length, uint32_t orig_length, bool clear) {
   uintptr_t free_addr = (uintptr_t)free_block;
@@ -535,31 +534,31 @@ uint32_t *PayloadBuffer::MergeWithFreeBlockBelow(
   // the combined free block and block being reallocated.
   FreeBlockHeader *next = ToAddress<FreeBlockHeader>(free_block->next);
   FreeBlockHeader *newb = reinterpret_cast<FreeBlockHeader *>(
-      free_addr + new_length + sizeof(uint32_t));
+      free_addr + new_length + sizeof(uint64_t));
   newb->length = free_block->length + orig_length - new_length;
   newb->next = ToOffset(next);
   *next_ptr = ToOffset(newb);
 
-  uint32_t *len_ptr = reinterpret_cast<uint32_t *>(free_block);
+  uint64_t *len_ptr = reinterpret_cast<uint64_t *>(free_block);
   *len_ptr = new_length;
   memmove(len_ptr + 1, alloc_block, orig_length);
   if (clear) {
-    memset(reinterpret_cast<char *>(len_ptr) + 4 + orig_length, 0,
+    memset(reinterpret_cast<char *>(len_ptr) + sizeof(uint64_t) + orig_length, 0,
            new_length - orig_length);
   }
   return len_ptr + 1;
 }
 
 void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
-                             uint32_t alignment, bool clear,
+                             bool clear,
                              bool enable_small_block) {
   if (p == NULL) {
     // No block to realloc, just call malloc.
-    return Allocate(buffer, n, alignment, clear);
+    return Allocate(buffer, n, clear);
   }
   // The allocated block has its length immediately prior to its address.
-  uint32_t *len_ptr = reinterpret_cast<uint32_t *>(p) - 1;
-  uint32_t orig_length = *len_ptr;
+  uint64_t *len_ptr = reinterpret_cast<uint64_t *>(p) - 1;
+  uint64_t = *len_ptr;
   if (enable_small_block && (*buffer)->BitmapsEnabled()) {
     int small_block_index = BitmapRunIndexFromEncodedSize(orig_length);
     if (small_block_index >= 0) {
@@ -585,7 +584,7 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
       }
       // Need to free the old block and allocate a new one as the small block
       // index is different.
-      void *newp = Allocate(buffer, n, alignment, false, enable_small_block);
+      void *newp = Allocate(buffer, n, false, enable_small_block);
       if (newp == NULL) {
         return NULL;
       }
@@ -599,7 +598,7 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
     }
   }
   FreeBlockHeader *alloc_block =
-      reinterpret_cast<FreeBlockHeader *>(uintptr_t(p) - sizeof(uint32_t));
+      reinterpret_cast<FreeBlockHeader *>(uintptr_t(p) - sizeof(uint64_t));
   uintptr_t alloc_addr = (uintptr_t)p;
 
   n = AlignSize(n); // Aligned.
@@ -663,7 +662,7 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
   // one, copy the memory and free the old block.  We are guaranteed that
   // the new block is larger than the original one since if it was smaller
   // we can always reuse the block.
-  void *newp = Allocate(buffer, n, alignment, false, enable_small_block);
+  void *newp = Allocate(buffer, n, false, enable_small_block);
   if (newp == NULL) {
     return NULL;
   }
@@ -703,7 +702,7 @@ bool PayloadBuffer::PrimeBitmapAllocator(PayloadBuffer **self, size_t size) {
 BufferOffset PayloadBuffer::AllocateBitMapRunVector(PayloadBuffer **self) {
   // Allocate space for the VectorHeader.  Although this is a small block, we
   // can't use the small block allocator because this is initializing it.
-  void *hdr = Allocate(self, sizeof(VectorHeader), 4, true, false);
+  void *hdr = Allocate(self, sizeof(VectorHeader), true, false);
   if (hdr == nullptr) {
     return 0;
   }
@@ -719,10 +718,10 @@ BitMapRun *PayloadBuffer::AllocateBitMapRun(PayloadBuffer **self, uint32_t size,
                                             uint32_t num) {
   // It is important that this isn't a small block as it will infintely recurse.
   // The full size of the BitMapRun contains space for the blocks themselves,
-  // each of which is prefixed by a 4 byte length.  The length is encoded
+  // each of which is prefixed by a 8 byte length.  The length is encoded
   // with data necessary for freeing it.
   BitMapRun *run = reinterpret_cast<BitMapRun *>(
-      Allocate(self, sizeof(BitMapRun) + (size + 4) * num, 4, false, false));
+      Allocate(self, sizeof(BitMapRun) + (size + 8) * num, false, false));
   if (run == nullptr) {
     return nullptr;
   }
@@ -761,14 +760,14 @@ void *BitMapRun::Allocate(PayloadBuffer **pb, int index, uint32_t n, int size,
       run->free--;
 
       // The address of the block is after the header and indexed by the bit
-      // number times the size of the block plus 4 bytes for the length.  Then
+      // number times the size of the block plus 8 bytes for the length.  Then
       // we need the address after the length word.
       void *addr = reinterpret_cast<char *>(run) + sizeof(BitMapRun) +
-                   bit * (run->size + 4) + 4;
+                   bit * (run->size + 8) + 8;
       // Write the encoded size of the block into the preceding 4 bytes.
-      uint32_t *p = reinterpret_cast<uint32_t *>(addr) - 1;
+      uint64_t *p = reinterpret_cast<uint64_t *>(addr) - 1;
       // Encode the length.
-      int encoded_size = (1U << 31) | (i << kBitmapRunBitMapShift) |
+      uint64_t = (1U << 31) | (i << kBitmapRunBitMapShift) |
                          (bit << kBitmpRunBitNumShift) |
                          (size & kBitmapRunSizeMask);
       *p = encoded_size;
