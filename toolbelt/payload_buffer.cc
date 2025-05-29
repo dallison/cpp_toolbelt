@@ -356,10 +356,10 @@ std::vector<void *> PayloadBuffer::AllocateMany(PayloadBuffer **buffer,
   std::vector<void *> blocks;
   uint64_t *p = reinterpret_cast<uint64_t *>(start);
   for (uint32_t i = 0; i < n; i++) {
-    uint64_t len = AlignSize(size, alignment);
+    uint64_t len = AlignSize(size, 8);
     p[0] = len;
     blocks.push_back(reinterpret_cast<void *>(p + 1));
-    p = reinterpret_cast<uint32_t *>(reinterpret_cast<char *>(p) + len +
+    p = reinterpret_cast<uint64_t *>(reinterpret_cast<char *>(p) + len +
                                      sizeof(uint64_t));
   }
   return blocks;
@@ -558,7 +558,7 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
   }
   // The allocated block has its length immediately prior to its address.
   uint64_t *len_ptr = reinterpret_cast<uint64_t *>(p) - 1;
-  uint64_t = *len_ptr;
+  uint64_t orig_length = *len_ptr;
   if (enable_small_block && (*buffer)->BitmapsEnabled()) {
     int small_block_index = BitmapRunIndexFromEncodedSize(orig_length);
     if (small_block_index >= 0) {
@@ -767,7 +767,7 @@ void *BitMapRun::Allocate(PayloadBuffer **pb, int index, uint32_t n, int size,
       // Write the encoded size of the block into the preceding 4 bytes.
       uint64_t *p = reinterpret_cast<uint64_t *>(addr) - 1;
       // Encode the length.
-      uint64_t = (1U << 31) | (i << kBitmapRunBitMapShift) |
+      uint64_t encoded_size = (1U << 31) | (i << kBitmapRunBitMapShift) |
                          (bit << kBitmpRunBitNumShift) |
                          (size & kBitmapRunSizeMask);
       *p = encoded_size;
