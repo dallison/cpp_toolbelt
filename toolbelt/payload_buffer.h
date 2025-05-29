@@ -493,7 +493,7 @@ inline void PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
     uint32_t current_size = DecodeSize(block);
     if (current_size == total_size) {
       // Need to double the size of the memory.
-      void *vecp = Realloc(self, block, 2 * hdr->num_elements * sizeof(T), 8,
+      void *vecp = Realloc(self, block, 2 * hdr->num_elements * sizeof(T),
                            true, enable_small_block);
       hdr->data = (*self)->ToOffset(vecp);
     }
