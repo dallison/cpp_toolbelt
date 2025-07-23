@@ -14,6 +14,7 @@ namespace toolbelt {
 class Pipe {
 public:
   static absl::StatusOr<Pipe> Create();
+  static absl::StatusOr<Pipe> CreateWithFlags(int flags);
   static absl::StatusOr<Pipe> Create(int r, int w);
 
   Pipe() = default;
@@ -24,7 +25,7 @@ public:
   Pipe &operator=(const Pipe &) = default;
   Pipe &operator=(Pipe &&) = default;
 
-  absl::Status Open();
+  absl::Status Open(int flags = 0);
 
   FileDescriptor &ReadFd() { return read_; }
   FileDescriptor &WriteFd() { return write_; }

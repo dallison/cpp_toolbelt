@@ -5,9 +5,11 @@
 
 namespace toolbelt {
 
-absl::StatusOr<Pipe> Pipe::Create() {
+absl::StatusOr<Pipe> Pipe::Create() { return CreateWithFlags(0); }
+
+absl::StatusOr<Pipe> Pipe::CreateWithFlags(int flags) {
   Pipe p;
-  if (absl::Status status = p.Open(); !status.ok()) {
+  if (absl::Status status = p.Open(flags); !status.ok()) {
     return status;
   }
   return p;
@@ -21,13 +23,34 @@ absl::StatusOr<Pipe> Pipe::Create(int r, int w) {
   return p;
 }
 
-absl::Status Pipe::Open() {
+absl::Status Pipe::Open(int flags) {
   int pipes[2];
+#if defined(__linux__)
+  // Linux has pipe2.
+  int e = ::pipe2(pipes, flags);
+  if (e == -1) {
+    return absl::InternalError(
+        absl::StrFormat("Failed to open pipe: %s", strerror(errno)));
+  }
+#else
   int e = ::pipe(pipes);
   if (e == -1) {
     return absl::InternalError(
         absl::StrFormat("Failed to open pipe: %s", strerror(errno)));
   }
+  // Set the flags on both ends of the pipe if non-zero.
+  if (flags != 0) {
+    if (fcntl(pipes[0], F_SETFL, flags) == -1) {
+      return absl::InternalError(absl::StrFormat(
+          "Failed to set flags on read end of pipe: %s", strerror(errno)));
+    }
+    if (fcntl(pipes[1], F_SETFL, flags) == -1) {
+      return absl::InternalError(absl::StrFormat(
+          "Failed to set flags on write end of pipe: %s", strerror(errno)));
+    }
+  }
+#endif
+
   read_.SetFd(pipes[0]);
   write_.SetFd(pipes[1]);
   return absl::OkStatus();
