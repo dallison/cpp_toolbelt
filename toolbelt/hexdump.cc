@@ -9,23 +9,23 @@
 
 namespace toolbelt {
 
-void Hexdump(const void *addr, size_t length) {
+void Hexdump(const void *addr, size_t length, FILE* out) {
   const char *p = reinterpret_cast<const char *>(addr);
   length = (length + 15) & ~15;
   while (length > 0) {
-    printf("%p ", p);
+    fprintf(out, "%p ", p);
     for (int i = 0; i < 16; i++) {
-      printf("%02X ", p[i] & 0xff);
+     fprintf(out, "%02X ", p[i] & 0xff);
     }
-    printf("  ");
+    fprintf(out, "  ");
     for (int i = 0; i < 16; i++) {
       if (isprint(p[i])) {
-        printf("%c", p[i]);
+        fprintf(out, "%c", p[i]);
       } else {
-        printf(".");
+        fprintf(out, ".");
       }
     }
-    printf("\n");
+    fprintf(out, "\n");
     p += 16;
     length -= 16;
   }

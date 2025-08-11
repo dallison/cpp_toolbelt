@@ -8,6 +8,7 @@
 #include <string.h>
 #include <string>
 #include <string_view>
+#include "toolbelt/hexdump.h"
 
 namespace toolbelt {
 
@@ -228,7 +229,8 @@ struct PayloadBuffer {
   }
 
   static uint32_t DecodeSize(BufferOffset* addr) {
-    uint32_t *p = reinterpret_cast<uint32_t *>(addr) - 1;
+    // Length is 64 bits long but we only need the bottom 32 bits of it.
+    uint32_t *p = reinterpret_cast<uint32_t *>(addr) - 2;
     if ((*p & (1U << 31)) == 0) {
       return *p;
     }
