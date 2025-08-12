@@ -350,6 +350,7 @@ absl::Status UnixSocket::Bind(const std::string &pathname, bool listen) {
   if (listen) {
     ::listen(fd_.Fd(), 10);
   }
+  bound_address_ = pathname;
   return absl::OkStatus();
 }
 
@@ -369,7 +370,24 @@ absl::StatusOr<UnixSocket> UnixSocket::Accept(co::Coroutine *c) {
         absl::StrFormat("Failed to accept unix socket connection on fd %d: %s",
                         fd_.Fd(), strerror(errno)));
   }
-  return UnixSocket(new_fd, /*connected=*/true);
+  auto new_socket = UnixSocket(new_fd, /*connected=*/true);
+
+  struct sockaddr_un bound;
+  socklen_t len = sizeof(bound);
+  int e =
+      getsockname(new_fd, reinterpret_cast<struct sockaddr *>(&bound), &len);
+  if (e == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Failed to obtain bound address for accepted socket: %s",
+        strerror(errno)));
+  }
+  #ifdef __linux__
+  new_socket.bound_address_ = bound.sun_path + 1;
+#else
+  new_socket.bound_address_ = bound.sun_path;
+
+#endif
+  return new_socket;
 }
 
 absl::Status UnixSocket::Connect(const std::string &pathname) {
@@ -734,9 +752,11 @@ absl::StatusOr<ssize_t> UDPSocket::ReceiveFrom(InetAddress &sender,
 }
 
 // Virtual (vsock) socket
-VirtualStreamSocket::VirtualStreamSocket() : Socket(socket(AF_VSOCK, SOCK_STREAM, 0)) {}
+VirtualStreamSocket::VirtualStreamSocket()
+    : Socket(socket(AF_VSOCK, SOCK_STREAM, 0)) {}
 
-absl::Status VirtualStreamSocket::Bind(const VirtualAddress &addr, bool listen) {
+absl::Status VirtualStreamSocket::Bind(const VirtualAddress &addr,
+                                       bool listen) {
   bool binding_to_zero = addr.Port() == 0;
   int bind_err =
       ::bind(fd_.Fd(), reinterpret_cast<const sockaddr *>(&addr.GetAddress()),
@@ -766,7 +786,8 @@ absl::Status VirtualStreamSocket::Bind(const VirtualAddress &addr, bool listen) 
   return absl::OkStatus();
 }
 
-absl::StatusOr<VirtualStreamSocket> VirtualStreamSocket::Accept(co::Coroutine *c) {
+absl::StatusOr<VirtualStreamSocket>
+VirtualStreamSocket::Accept(co::Coroutine *c) {
   if (!fd_.Valid()) {
     return absl::InternalError("Socket is not valid");
   }
