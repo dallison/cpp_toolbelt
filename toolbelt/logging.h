@@ -1,10 +1,11 @@
-// Copyright 2023 David Allison
+// Copyright 2023,2025 David Allison
 // All Rights Reserved
 // See LICENSE file for licensing information.
 
 #ifndef __TOOLBELT_LOGGING_H
 #define __TOOLBELT_LOGGING_H
 
+#include "absl/status/status.h"
 #include "toolbelt/color.h"
 #include <stdarg.h>
 #include <string>
@@ -58,6 +59,16 @@ public:
 
   void Enable() { enabled_ = true; }
   void Disable() { enabled_ = false; }
+
+  // We can also tee the output to a file or a stream.  Calling this more than
+  // once will close the current stream and open a new one.
+  absl::Status SetTeeFile(const std::string& filename, bool truncate = true);
+  void SetTeeStream(FILE *stream) {
+    if (tee_stream_ != nullptr) {
+      fclose(tee_stream_);
+    }
+    tee_stream_ = stream;
+  }
 
   // Log a message at the given log level.  If standard error is a TTY
   // it will be in color.
@@ -125,6 +136,7 @@ private:
   int screen_width_;
   LogTheme theme_ = LogTheme::kDefault;
 
+  FILE* tee_stream_ = nullptr;
   static constexpr int kNumColumns = 5;
   size_t column_widths_[kNumColumns];
   color::Color colors_[kNumColumns];
