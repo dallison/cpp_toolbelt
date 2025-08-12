@@ -17,6 +17,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 #include <vector>
+#include <sys/vsock.h>
 
 namespace toolbelt {
 
@@ -76,6 +77,58 @@ template <typename H> inline H AbslHashValue(H h, const InetAddress &a) {
   return H::combine_contiguous(
       std::move(h), reinterpret_cast<const char *>(&a.addr_), sizeof(a.addr_));
 }
+
+// This is a virtual socket address and port.  It's used by VirtualStreamSocket which
+// is implemented using the 'vsock' protocol.
+class VirtualAddress {
+public:
+  VirtualAddress() = default;
+
+  // An address with VMADDR_CID_ANY and the give port number (host order)
+  VirtualAddress(uint32_t port);
+
+  VirtualAddress(uint32_t cid, uint32_t port);
+
+  const sockaddr_vm &GetAddress() const { return addr_; }
+  socklen_t GetLength() const { return sizeof(addr_); }
+  bool Valid() const { return valid_; }
+
+  // CID and port are returned in host byte order.
+  uint32_t Cid() const { return addr_.svm_cid; }
+  uint32_t Port() const { return addr_.svm_port; }
+
+  // Port is in host byte order.
+  void SetPort(uint32_t port) { addr_.svm_port = port; }
+
+  void SetAddress(const struct sockaddr_vm &addr) { addr_ = addr; }
+
+  std::string ToString() const;
+
+  // Provide support for Abseil hashing.
+  friend bool operator==(const VirtualAddress &a, const VirtualAddress &b);
+  template <typename H> friend H AbslHashValue(H h, const VirtualAddress &a);
+
+  static VirtualAddress HypervisorAddress(uint32_t port);
+  static VirtualAddress HostAddress(uint32_t port);
+  static VirtualAddress AnyAddress(uint32_t port);
+#if defined(__linux__)
+  static VirtualAddress LocalAddress(uint32_t port);
+#endif
+
+private:
+  struct sockaddr_vm addr_; // In network byte order.
+  bool valid_ = false;
+};
+
+inline bool operator==(const VirtualAddress &a, const VirtualAddress &b) {
+  return memcmp(&a.addr_, &b.addr_, sizeof(a.addr_)) == 0;
+}
+
+template <typename H> inline H AbslHashValue(H h, const VirtualAddress &a) {
+  return H::combine_contiguous(
+      std::move(h), reinterpret_cast<const char *>(&a.addr_), sizeof(a.addr_));
+}
+
 
 // This is a general socket initialized with a file descriptor.  Subclasses
 // implement the different socket types.
@@ -238,6 +291,29 @@ public:
   absl::Status Bind(const InetAddress &addr, bool listen);
 
   absl::StatusOr<TCPSocket> Accept(co::Coroutine *c = nullptr);
+};
+
+
+class VirtualStreamSocket : public Socket {
+public:
+  VirtualStreamSocket();
+  explicit VirtualStreamSocket(int fd, bool connected = false)
+      : Socket(fd, connected) {}
+  VirtualStreamSocket(const VirtualStreamSocket &) = default;
+  VirtualStreamSocket(VirtualStreamSocket &&s) : Socket(std::move(s)) {}
+  ~VirtualStreamSocket() = default;
+  VirtualStreamSocket &operator=(const VirtualStreamSocket &s) = default;
+  absl::Status Connect(const VirtualAddress &addr);
+
+  absl::Status Bind(const VirtualAddress &addr, bool listen);
+
+  absl::StatusOr<VirtualStreamSocket> Accept(co::Coroutine *c = nullptr);
+  absl::StatusOr<VirtualAddress> LocalAddress(uint32_t port) const;
+
+  const VirtualAddress &BoundAddress() const { return bound_address_; }
+
+protected:
+  VirtualAddress bound_address_;
 };
 } // namespace toolbelt
 
