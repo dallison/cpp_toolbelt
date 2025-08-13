@@ -481,9 +481,8 @@ public:
   const VirtualAddress &BoundAddress() const { return bound_address_; }
   absl::StatusOr<VirtualAddress> GetPeerName() const;
 
-  uint32_t Cid() const {
-    return bound_address_.Cid();
-  }
+  uint32_t Cid() const { return bound_address_.Cid(); }
+
 protected:
   VirtualAddress bound_address_;
 };
@@ -523,11 +522,14 @@ public:
   absl::Status Connect(const SocketAddress &addr) {
     switch (addr.Type()) {
     case SocketAddress::kAddressInet:
+      socket_ = TCPSocket();
       return std::get<TCPSocket>(socket_).Connect(addr.GetInetAddress());
     case SocketAddress::kAddressVirtual:
+      socket_ = VirtualStreamSocket();
       return std::get<VirtualStreamSocket>(socket_).Connect(
           addr.GetVirtualAddress());
     case SocketAddress::kAddressUnix:
+      socket_ = UnixSocket();
       return std::get<UnixSocket>(socket_).Connect(addr.GetUnixAddress());
     }
     return absl::Status(absl::StatusCode::kInternal, "Invalid socket address");
