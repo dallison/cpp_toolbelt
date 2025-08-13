@@ -354,7 +354,7 @@ absl::Status UnixSocket::Bind(const std::string &pathname, bool listen) {
   return absl::OkStatus();
 }
 
-absl::StatusOr<UnixSocket> UnixSocket::Accept(co::Coroutine *c) {
+absl::StatusOr<UnixSocket> UnixSocket::Accept(co::Coroutine *c) const {
   if (!fd_.Valid()) {
     return absl::InternalError("UnixSocket is not valid");
   }
@@ -592,7 +592,7 @@ absl::Status TCPSocket::Bind(const InetAddress &addr, bool listen) {
   return absl::OkStatus();
 }
 
-absl::StatusOr<TCPSocket> TCPSocket::Accept(co::Coroutine *c) {
+absl::StatusOr<TCPSocket> TCPSocket::Accept(co::Coroutine *c) const {
   if (!fd_.Valid()) {
     return absl::InternalError("Socket is not valid");
   }
@@ -787,7 +787,7 @@ absl::Status VirtualStreamSocket::Bind(const VirtualAddress &addr,
 }
 
 absl::StatusOr<VirtualStreamSocket>
-VirtualStreamSocket::Accept(co::Coroutine *c) {
+VirtualStreamSocket::Accept(co::Coroutine *c) const {
   if (!fd_.Valid()) {
     return absl::InternalError("Socket is not valid");
   }
