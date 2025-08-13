@@ -375,6 +375,8 @@ public:
                           co::Coroutine *c = nullptr);
 
   std::string BoundAddress() const { return bound_address_; }
+  absl::StatusOr<std::string> GetPeerName() const;
+  absl::StatusOr<std::string> LocalAddress() const;
 
 private:
   std::string bound_address_;
@@ -448,6 +450,10 @@ public:
   absl::Status Bind(const InetAddress &addr, bool listen);
 
   absl::StatusOr<TCPSocket> Accept(co::Coroutine *c = nullptr) const;
+
+  absl::StatusOr<InetAddress> LocalAddress(int port) const;
+
+  absl::StatusOr<InetAddress> GetPeerName() const;
 };
 
 class VirtualStreamSocket : public Socket {
@@ -467,7 +473,11 @@ public:
   absl::StatusOr<VirtualAddress> LocalAddress(uint32_t port) const;
 
   const VirtualAddress &BoundAddress() const { return bound_address_; }
+  absl::StatusOr<VirtualAddress> GetPeerName() const;
 
+  uint32_t Cid() const {
+    return bound_address_.Cid();
+  }
 protected:
   VirtualAddress bound_address_;
 };
@@ -683,6 +693,60 @@ public:
   }
 
   bool IsBlocking() const { return !IsNonBlocking(); }
+
+  absl::StatusOr<SocketAddress> GetPeerName() const {
+    return std::visit(
+        EyeOfNewt{
+            [&](const TCPSocket &s) -> absl::StatusOr<SocketAddress> {
+              auto st = s.GetPeerName();
+              if (!st.ok()) {
+                return st;
+              }
+              return SocketAddress(*st);
+            },
+            [&](const VirtualStreamSocket &s) -> absl::StatusOr<SocketAddress> {
+              auto st = s.GetPeerName();
+              if (!st.ok()) {
+                return st;
+              }
+              return SocketAddress(*st);
+            },
+            [&](const UnixSocket &s) -> absl::StatusOr<SocketAddress> {
+              auto st = s.GetPeerName();
+              if (!st.ok()) {
+                return st;
+              }
+              return SocketAddress(*st);
+            }},
+        socket_);
+  }
+
+  absl::StatusOr<SocketAddress> LocalAddress(int port) const {
+    return std::visit(
+        EyeOfNewt{
+            [&](const TCPSocket &s) -> absl::StatusOr<SocketAddress> {
+              auto st = s.LocalAddress(port);
+              if (!st.ok()) {
+                return st;
+              }
+              return SocketAddress(*st);
+            },
+            [&](const VirtualStreamSocket &s) -> absl::StatusOr<SocketAddress> {
+              auto st = s.LocalAddress(port);
+              if (!st.ok()) {
+                return st;
+              }
+              return SocketAddress(*st);
+            },
+            [&](const UnixSocket &s) -> absl::StatusOr<SocketAddress> {
+              auto st = s.LocalAddress();
+              if (!st.ok()) {
+                return st;
+              }
+              return SocketAddress(*st);
+            }},
+        socket_);
+  }
 
 private:
   // Constructors with various socket types.
