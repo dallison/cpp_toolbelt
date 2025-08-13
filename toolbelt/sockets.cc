@@ -519,6 +519,44 @@ absl::Status UnixSocket::ReceiveFds(std::vector<FileDescriptor> &fds,
   return absl::OkStatus();
 }
 
+absl::StatusOr<std::string> UnixSocket::GetPeerName() const {
+  if (!fd_.Valid()) {
+    return absl::InternalError("Socket is not valid");
+  }
+  struct sockaddr_un peer;
+  socklen_t len = sizeof(peer);
+  int e =
+      getpeername(fd_.Fd(), reinterpret_cast<struct sockaddr *>(&peer), &len);
+  if (e == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Failed to obtain peer address for socket: %s", strerror(errno)));
+  }
+#if defined(__linux__)
+  return std::string(peer.sun_path + 1);
+#else
+  return std::string(peer.sun_path);
+#endif
+}
+
+absl::StatusOr<std::string> UnixSocket::LocalAddress() const {
+  if (!fd_.Valid()) {
+    return absl::InternalError("Socket is not valid");
+  }
+  struct sockaddr_un local;
+  socklen_t len = sizeof(local);
+  int e =
+      getsockname(fd_.Fd(), reinterpret_cast<struct sockaddr *>(&local), &len);
+  if (e == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Failed to obtain local address for socket: %s", strerror(errno)));
+  }
+#if defined(__linux__)
+  return std::string(local.sun_path + 1);
+#else
+  return std::string(local.sun_path);
+#endif
+}
+
 // Network socket.
 absl::Status NetworkSocket::Connect(const InetAddress &addr) {
   if (!fd_.Valid()) {
@@ -615,6 +653,36 @@ absl::StatusOr<TCPSocket> TCPSocket::Accept(co::Coroutine *c) const {
   }
   new_socket.bound_address_.SetAddress(bound);
   return new_socket;
+}
+
+absl::StatusOr<InetAddress> TCPSocket::GetPeerName() const {
+  if (!fd_.Valid()) {
+    return absl::InternalError("Socket is not valid");
+  }
+  struct sockaddr_in peer;
+  socklen_t len = sizeof(peer);
+  int e =
+      getpeername(fd_.Fd(), reinterpret_cast<struct sockaddr *>(&peer), &len);
+  if (e == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Failed to obtain peer address for socket: %s", strerror(errno)));
+  }
+  return InetAddress(peer);
+}
+
+absl::StatusOr<InetAddress> TCPSocket::LocalAddress(int port) const {
+  if (!fd_.Valid()) {
+    return absl::InternalError("Socket is not valid");
+  }
+  struct sockaddr_in local;
+  socklen_t len = sizeof(local);
+  int e =
+      getsockname(fd_.Fd(), reinterpret_cast<struct sockaddr *>(&local), &len);
+  if (e == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Failed to obtain local address for socket: %s", strerror(errno)));
+  }
+  return InetAddress(local);
 }
 
 // UDP socket
@@ -840,4 +908,20 @@ VirtualStreamSocket::LocalAddress(uint32_t port) const {
   }
   return VirtualAddress(cid, port);
 }
+
+absl::StatusOr<VirtualAddress> VirtualStreamSocket::GetPeerName() const {
+  if (!fd_.Valid()) {
+    return absl::InternalError("Socket is not valid");
+  }
+  struct sockaddr_vm peer;
+  socklen_t len = sizeof(peer);
+  int e =
+      getpeername(fd_.Fd(), reinterpret_cast<struct sockaddr *>(&peer), &len);
+  if (e == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Failed to obtain peer address for socket: %s", strerror(errno)));
+  }
+  return VirtualAddress(peer);
+}
+
 } // namespace toolbelt
