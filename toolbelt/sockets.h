@@ -15,7 +15,13 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/un.h>
+
+#if defined(__linux__)
+#include <linux/vm_sockets.h>
+#else
 #include <sys/vsock.h>
+#endif
+
 #include <unistd.h>
 #include <variant>
 #include <vector>
