@@ -381,7 +381,7 @@ absl::StatusOr<UnixSocket> UnixSocket::Accept(co::Coroutine *c) const {
         "Failed to obtain bound address for accepted socket: %s",
         strerror(errno)));
   }
-  #ifdef __linux__
+#ifdef __linux__
   new_socket.bound_address_ = bound.sun_path + 1;
 #else
   new_socket.bound_address_ = bound.sun_path;

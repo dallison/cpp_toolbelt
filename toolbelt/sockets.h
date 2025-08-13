@@ -222,16 +222,16 @@ public:
   std::string ToString() const {
     return std::visit(
         EyeOfNewt{[](const InetAddress &a) { return a.ToString(); },
-                   [](const VirtualAddress &a) { return a.ToString(); },
-                   [](const std::string &a) { return a; }},
+                  [](const VirtualAddress &a) { return a.ToString(); },
+                  [](const std::string &a) { return a; }},
         address_);
   }
 
   bool Valid() const {
     return std::visit(
         EyeOfNewt{[](const InetAddress &a) { return a.Valid(); },
-                   [](const VirtualAddress &a) { return a.Valid(); },
-                   [](const std::string &a) { return !a.empty(); }},
+                  [](const VirtualAddress &a) { return a.Valid(); },
+                  [](const std::string &a) { return !a.empty(); }},
         address_);
   }
 
@@ -241,8 +241,8 @@ public:
   int Port() const {
     return std::visit(
         EyeOfNewt{[](const InetAddress &a) { return int(a.Port()); },
-                   [](const VirtualAddress &a) { return int(a.Port()); },
-                   [](const std::string &a) { return 0; }},
+                  [](const VirtualAddress &a) { return int(a.Port()); },
+                  [](const std::string &a) { return 0; }},
         address_);
   }
 
@@ -272,15 +272,15 @@ inline bool operator==(const SocketAddress &a, const SocketAddress &b) {
 
 template <typename H> inline H AbslHashValue(H h, const SocketAddress &a) {
   return std::visit(EyeOfNewt{[&h](const InetAddress &a) {
-                                 return AbslHashValue(std::move(h), a);
-                               },
-                               [&h](const VirtualAddress &a) {
-                                 return AbslHashValue(std::move(h), a);
-                               },
-                               [&h](const std::string &a) {
-                                 return AbslHashValue(std::move(h),
-                                                      std::string_view(a));
-                               }},
+                                return AbslHashValue(std::move(h), a);
+                              },
+                              [&h](const VirtualAddress &a) {
+                                return AbslHashValue(std::move(h), a);
+                              },
+                              [&h](const std::string &a) {
+                                return AbslHashValue(std::move(h),
+                                                     std::string_view(a));
+                              }},
                     a.address_);
 }
 
@@ -557,29 +557,29 @@ public:
   SocketAddress BoundAddress() const {
     return std::visit(
         EyeOfNewt{[](const TCPSocket &s) -> SocketAddress {
-                     return SocketAddress(s.BoundAddress());
-                   },
-                   [](const VirtualStreamSocket &s) -> SocketAddress {
-                     return SocketAddress(s.BoundAddress());
-                   },
-                   [](const UnixSocket &s) -> SocketAddress {
-                     return SocketAddress(s.BoundAddress());
-                   }},
+                    return SocketAddress(s.BoundAddress());
+                  },
+                  [](const VirtualStreamSocket &s) -> SocketAddress {
+                    return SocketAddress(s.BoundAddress());
+                  },
+                  [](const UnixSocket &s) -> SocketAddress {
+                    return SocketAddress(s.BoundAddress());
+                  }},
         socket_);
   }
 
   void Close() {
     std::visit(EyeOfNewt{[](TCPSocket &s) { s.Close(); },
-                          [](VirtualStreamSocket &s) { s.Close(); },
-                          [](UnixSocket &s) { s.Close(); }},
+                         [](VirtualStreamSocket &s) { s.Close(); },
+                         [](UnixSocket &s) { s.Close(); }},
                socket_);
   }
 
   bool Connected() const {
     return std::visit(
         EyeOfNewt{[](const TCPSocket &s) { return s.Connected(); },
-                   [](const VirtualStreamSocket &s) { return s.Connected(); },
-                   [](const UnixSocket &s) { return s.Connected(); }},
+                  [](const VirtualStreamSocket &s) { return s.Connected(); },
+                  [](const UnixSocket &s) { return s.Connected(); }},
         socket_);
   }
 
@@ -588,10 +588,10 @@ public:
                                   co::Coroutine *c = nullptr) {
     return std::visit(
         EyeOfNewt{[&](TCPSocket &s) { return s.Receive(buffer, buflen, c); },
-                   [&](VirtualStreamSocket &s) {
-                     return s.Receive(buffer, buflen, c);
-                   },
-                   [&](UnixSocket &s) { return s.Receive(buffer, buflen, c); }},
+                  [&](VirtualStreamSocket &s) {
+                    return s.Receive(buffer, buflen, c);
+                  },
+                  [&](UnixSocket &s) { return s.Receive(buffer, buflen, c); }},
         socket_);
   }
 
@@ -652,8 +652,8 @@ public:
   absl::Status SetNonBlocking() {
     return std::visit(
         EyeOfNewt{[&](TCPSocket &s) { return s.SetNonBlocking(); },
-                   [&](VirtualStreamSocket &s) { return s.SetNonBlocking(); },
-                   [&](UnixSocket &s) { return s.SetNonBlocking(); }},
+                  [&](VirtualStreamSocket &s) { return s.SetNonBlocking(); },
+                  [&](UnixSocket &s) { return s.SetNonBlocking(); }},
         socket_);
   }
 
@@ -670,8 +670,8 @@ public:
   absl::Status SetCloseOnExec() {
     return std::visit(
         EyeOfNewt{[](TCPSocket &s) { return s.SetCloseOnExec(); },
-                   [](VirtualStreamSocket &s) { return s.SetCloseOnExec(); },
-                   [](UnixSocket &s) { return s.SetCloseOnExec(); }},
+                  [](VirtualStreamSocket &s) { return s.SetCloseOnExec(); },
+                  [](UnixSocket &s) { return s.SetCloseOnExec(); }},
         socket_);
   }
 
