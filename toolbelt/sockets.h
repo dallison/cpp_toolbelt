@@ -22,6 +22,13 @@
 
 namespace toolbelt {
 
+// Magical incantation to get std::visit to work.
+template <class... Ts> struct EyeOfNewt : Ts... {
+  using Ts::operator()...;
+};
+// explicit deduction guide (not needed as of C++20)
+template <class... Ts> EyeOfNewt(Ts...) -> EyeOfNewt<Ts...>;
+
 // This is an internet protocol address and port.  Used as the
 // endpoint address for all network based sockets.  Only IPv4 is
 // supported for now.
@@ -157,8 +164,8 @@ public:
       : address_(VirtualAddress(cid, port)) {}
 
   // Create a SocketAddress from a variant index and address.
-  SocketAddress(int index, const void *addr) {
-    switch (index) {
+  SocketAddress(int type, const void *addr) {
+    switch (type) {
     case kAddressInet:
       address_ =
           InetAddress(*reinterpret_cast<const struct sockaddr_in *>(addr));
@@ -190,18 +197,14 @@ public:
   }
 
   static SocketAddress AnyPort(const SocketAddress &addr) {
-    switch (addr.Type()) {
-    case kAddressInet:
-      return SocketAddress(addr.GetInetAddress().IpAddress(),
-                           0); // Port is 0 for any port.
-    case kAddressVirtual:
-      return SocketAddress(addr.GetVirtualAddress().Cid(), VMADDR_PORT_ANY);
-    case kAddressUnix:
-      return SocketAddress(std::string(addr.GetUnixAddress()));
-
-    default:
-      throw std::invalid_argument("Invalid socket address type");
-    }
+    return std::visit(
+        EyeOfNewt{
+            [](const InetAddress &a) {
+              return SocketAddress(a.IpAddress(), 0);
+            },
+            [](const VirtualAddress &a) { return SocketAddress(a.Cid(), 0); },
+            [](const std::string &a) { return SocketAddress(a); }},
+        addr.address_);
   }
 
   const InetAddress &GetInetAddress() const {
@@ -217,43 +220,30 @@ public:
   }
 
   std::string ToString() const {
-    if (std::holds_alternative<InetAddress>(address_)) {
-      return std::get<InetAddress>(address_).ToString();
-    } else if (std::holds_alternative<VirtualAddress>(address_)) {
-      return std::get<VirtualAddress>(address_).ToString();
-    } else if (std::holds_alternative<std::string>(address_)) {
-      return std::get<std::string>(address_);
-    }
-    return "Invalid Address";
+    return std::visit(
+        EyeOfNewt{[](const InetAddress &a) { return a.ToString(); },
+                   [](const VirtualAddress &a) { return a.ToString(); },
+                   [](const std::string &a) { return a; }},
+        address_);
   }
 
   bool Valid() const {
-    switch (address_.index()) {
-    case 0:
-      return std::get<InetAddress>(address_).Valid();
-    case 1:
-      return std::get<VirtualAddress>(address_).Valid();
-    case 2:
-      return !std::get<std::string>(address_).empty();
-    default:
-      return false;
-    }
+    return std::visit(
+        EyeOfNewt{[](const InetAddress &a) { return a.Valid(); },
+                   [](const VirtualAddress &a) { return a.Valid(); },
+                   [](const std::string &a) { return !a.empty(); }},
+        address_);
   }
 
   // What address type is in the variant.
   int Type() const { return address_.index(); }
 
   int Port() const {
-    switch (address_.index()) {
-    case 0:
-      return std::get<InetAddress>(address_).Port();
-    case 1:
-      return std::get<VirtualAddress>(address_).Port();
-    case 2:
-      return 0; // Unix domain sockets don't have a port.
-    default:
-      throw std::invalid_argument("Invalid socket address type");
-    }
+    return std::visit(
+        EyeOfNewt{[](const InetAddress &a) { return int(a.Port()); },
+                   [](const VirtualAddress &a) { return int(a.Port()); },
+                   [](const std::string &a) { return 0; }},
+        address_);
   }
 
   // Provide support for Abseil hashing.
@@ -281,17 +271,17 @@ inline bool operator==(const SocketAddress &a, const SocketAddress &b) {
 }
 
 template <typename H> inline H AbslHashValue(H h, const SocketAddress &a) {
-  switch (a.address_.index()) {
-  case 0:
-    return AbslHashValue(std::move(h), std::get<InetAddress>(a.address_));
-  case 1:
-    return AbslHashValue(std::move(h), std::get<VirtualAddress>(a.address_));
-  case 2:
-    return AbslHashValue(std::move(h),
-                         std::string_view(std::get<std::string>(a.address_)));
-  default:
-    return std::move(h);
-  }
+  return std::visit(EyeOfNewt{[&h](const InetAddress &a) {
+                                 return AbslHashValue(std::move(h), a);
+                               },
+                               [&h](const VirtualAddress &a) {
+                                 return AbslHashValue(std::move(h), a);
+                               },
+                               [&h](const std::string &a) {
+                                 return AbslHashValue(std::move(h),
+                                                      std::string_view(a));
+                               }},
+                    a.address_);
 }
 
 // This is a general socket initialized with a file descriptor.  Subclasses
@@ -379,7 +369,7 @@ public:
   absl::Status Bind(const std::string &pathname, bool listen);
   absl::Status Connect(const std::string &pathname);
 
-  absl::StatusOr<UnixSocket> Accept(co::Coroutine *c = nullptr);
+  absl::StatusOr<UnixSocket> Accept(co::Coroutine *c = nullptr) const;
 
   absl::Status SendFds(const std::vector<FileDescriptor> &fds,
                        co::Coroutine *c = nullptr);
@@ -459,7 +449,7 @@ public:
 
   absl::Status Bind(const InetAddress &addr, bool listen);
 
-  absl::StatusOr<TCPSocket> Accept(co::Coroutine *c = nullptr);
+  absl::StatusOr<TCPSocket> Accept(co::Coroutine *c = nullptr) const;
 };
 
 class VirtualStreamSocket : public Socket {
@@ -475,7 +465,7 @@ public:
 
   absl::Status Bind(const VirtualAddress &addr, bool listen);
 
-  absl::StatusOr<VirtualStreamSocket> Accept(co::Coroutine *c = nullptr);
+  absl::StatusOr<VirtualStreamSocket> Accept(co::Coroutine *c = nullptr) const;
   absl::StatusOr<VirtualAddress> LocalAddress(uint32_t port) const;
 
   const VirtualAddress &BoundAddress() const { return bound_address_; }
@@ -484,7 +474,8 @@ protected:
   VirtualAddress bound_address_;
 };
 
-// Class that wraps the various stream-based sockets.
+// Class that wraps the various stream-based sockets.  This is a compile-time
+// switchable class that can represent different types of stream sockets.
 class StreamSocket {
 public:
   StreamSocket() = default;
@@ -493,7 +484,12 @@ public:
   ~StreamSocket() = default;
   StreamSocket &operator=(const StreamSocket &s) = default;
 
-  // Binders for TCP, virtual, and Unix sockets.
+  // Binders for TCP, Virtual, and Unix sockets.
+  //
+  // NOTE: I wanted to use std::visit for the Bind and Connect functions but I
+  // always get an error: "cannot deduce return type 'auto' from returned value
+  // of type '<EyeOfNewt function type>'" which I do not understand.  Perhaps
+  // it's because I am using the SocketAddress as the variant.  Dunno.
   absl::Status Bind(const SocketAddress &addr, bool listen) {
     switch (addr.Type()) {
     case SocketAddress::kAddressInet:
@@ -523,31 +519,32 @@ public:
     return absl::Status(absl::StatusCode::kInternal, "Invalid socket address");
   }
 
-  absl::StatusOr<StreamSocket> Accept(co::Coroutine *c = nullptr) {
-    switch (socket_.index()) {
-    case 0: {
-      auto s = std::get<TCPSocket>(socket_).Accept(c);
-      if (!s.ok()) {
-        return s.status();
-      }
-      return StreamSocket(std::move(*s));
-    }
-    case 1: {
-      auto s = std::get<VirtualStreamSocket>(socket_).Accept(c);
-      if (!s.ok()) {
-        return s.status();
-      }
-      return StreamSocket(std::move(*s));
-    }
-    case 2: {
-      auto s = std::get<UnixSocket>(socket_).Accept(c);
-      if (!s.ok()) {
-        return s.status();
-      }
-      return StreamSocket(std::move(*s));
-    }
-    }
-    return absl::Status(absl::StatusCode::kInternal, "Invalid socket type");
+  absl::StatusOr<StreamSocket> Accept(co::Coroutine *c = nullptr) const {
+    return std::visit(
+        EyeOfNewt{
+            [&](const TCPSocket &s) mutable -> absl::StatusOr<StreamSocket> {
+              auto status = s.Accept(c);
+              if (!status.ok()) {
+                return status.status();
+              }
+              return StreamSocket(std::move(*status));
+            },
+            [&](const VirtualStreamSocket &s) mutable
+                -> absl::StatusOr<StreamSocket> {
+              auto status = s.Accept(c);
+              if (!status.ok()) {
+                return status.status();
+              }
+              return StreamSocket(std::move(*status));
+            },
+            [&](const UnixSocket &s) mutable -> absl::StatusOr<StreamSocket> {
+              auto status = s.Accept(c);
+              if (!status.ok()) {
+                return status.status();
+              }
+              return StreamSocket(std::move(*status));
+            }},
+        socket_);
   }
 
   // Accessors for the underlying socket types.
@@ -558,98 +555,81 @@ public:
   UnixSocket &GetUnixSocket() { return std::get<UnixSocket>(socket_); }
 
   SocketAddress BoundAddress() const {
-    switch (socket_.index()) {
-    case 0:
-      return SocketAddress(std::get<TCPSocket>(socket_).BoundAddress());
-    case 1:
-      return SocketAddress(
-          std::get<VirtualStreamSocket>(socket_).BoundAddress());
-    case 2:
-      return SocketAddress(std::get<UnixSocket>(socket_).BoundAddress());
-    }
-    return SocketAddress(); // Invalid address.
+    return std::visit(
+        EyeOfNewt{[](const TCPSocket &s) -> SocketAddress {
+                     return SocketAddress(s.BoundAddress());
+                   },
+                   [](const VirtualStreamSocket &s) -> SocketAddress {
+                     return SocketAddress(s.BoundAddress());
+                   },
+                   [](const UnixSocket &s) -> SocketAddress {
+                     return SocketAddress(s.BoundAddress());
+                   }},
+        socket_);
   }
 
   void Close() {
-    switch (socket_.index()) {
-    case 0:
-      std::get<TCPSocket>(socket_).Close();
-      break;
-    case 1:
-      std::get<VirtualStreamSocket>(socket_).Close();
-      break;
-    case 2:
-      std::get<UnixSocket>(socket_).Close();
-      break;
-    }
+    std::visit(EyeOfNewt{[](TCPSocket &s) { s.Close(); },
+                          [](VirtualStreamSocket &s) { s.Close(); },
+                          [](UnixSocket &s) { s.Close(); }},
+               socket_);
   }
+
   bool Connected() const {
-    switch (socket_.index()) {
-    case 0:
-      return std::get<TCPSocket>(socket_).Connected();
-    case 1:
-      return std::get<VirtualStreamSocket>(socket_).Connected();
-    case 2:
-      return std::get<UnixSocket>(socket_).Connected();
-    }
-    return false; // Invalid socket type.
+    return std::visit(
+        EyeOfNewt{[](const TCPSocket &s) { return s.Connected(); },
+                   [](const VirtualStreamSocket &s) { return s.Connected(); },
+                   [](const UnixSocket &s) { return s.Connected(); }},
+        socket_);
   }
 
   // Send and receive raw buffers.
   absl::StatusOr<ssize_t> Receive(char *buffer, size_t buflen,
                                   co::Coroutine *c = nullptr) {
-    switch (socket_.index()) {
-    case 0:
-      return std::get<TCPSocket>(socket_).Receive(buffer, buflen, c);
-    case 1:
-      return std::get<VirtualStreamSocket>(socket_).Receive(buffer, buflen, c);
-    case 2:
-      return std::get<UnixSocket>(socket_).Receive(buffer, buflen, c);
-    }
-    return absl::InternalError("Invalid socket type");
+    return std::visit(
+        EyeOfNewt{[&](TCPSocket &s) { return s.Receive(buffer, buflen, c); },
+                   [&](VirtualStreamSocket &s) {
+                     return s.Receive(buffer, buflen, c);
+                   },
+                   [&](UnixSocket &s) { return s.Receive(buffer, buflen, c); }},
+        socket_);
   }
 
   absl::StatusOr<ssize_t> Send(const char *buffer, size_t length,
                                co::Coroutine *c = nullptr) {
-    switch (socket_.index()) {
-    case 0:
-      return std::get<TCPSocket>(socket_).Send(buffer, length, c);
-    case 1:
-      return std::get<VirtualStreamSocket>(socket_).Send(buffer, length, c);
-    case 2:
-      return std::get<UnixSocket>(socket_).Send(buffer, length, c);
-    }
-    return absl::InternalError("Invalid socket type");
+    return std::visit(
+        EyeOfNewt{
+            [&](TCPSocket &s) { return s.Send(buffer, length, c); },
+            [&](VirtualStreamSocket &s) { return s.Send(buffer, length, c); },
+            [&](UnixSocket &s) { return s.Send(buffer, length, c); }},
+        socket_);
   }
+
   // Send and receive length-delimited message.  The length is a 4-byte
   // network byte order (big endian) int as the first 4 bytes and
   // contains the length of the message.
   absl::StatusOr<ssize_t> ReceiveMessage(char *buffer, size_t buflen,
                                          co::Coroutine *c = nullptr) {
-    switch (socket_.index()) {
-    case 0:
-      return std::get<TCPSocket>(socket_).ReceiveMessage(buffer, buflen, c);
-    case 1:
-      return std::get<VirtualStreamSocket>(socket_).ReceiveMessage(buffer,
-                                                                   buflen, c);
-    case 2:
-      return std::get<UnixSocket>(socket_).ReceiveMessage(buffer, buflen, c);
-    }
-    return absl::InternalError("Invalid socket type");
+    return std::visit(
+        EyeOfNewt{
+            [&](TCPSocket &s) { return s.ReceiveMessage(buffer, buflen, c); },
+            [&](VirtualStreamSocket &s) {
+              return s.ReceiveMessage(buffer, buflen, c);
+            },
+            [&](UnixSocket &s) { return s.ReceiveMessage(buffer, buflen, c); }},
+        socket_);
   }
 
   absl::StatusOr<std::vector<char>>
   ReceiveVariableLengthMessage(co::Coroutine *c = nullptr) {
-    switch (socket_.index()) {
-    case 0:
-      return std::get<TCPSocket>(socket_).ReceiveVariableLengthMessage(c);
-    case 1:
-      return std::get<VirtualStreamSocket>(socket_)
-          .ReceiveVariableLengthMessage(c);
-    case 2:
-      return std::get<UnixSocket>(socket_).ReceiveVariableLengthMessage(c);
-    }
-    return absl::InternalError("Invalid socket type");
+    return std::visit(
+        EyeOfNewt{
+            [&](TCPSocket &s) { return s.ReceiveVariableLengthMessage(c); },
+            [&](VirtualStreamSocket &s) {
+              return s.ReceiveVariableLengthMessage(c);
+            },
+            [&](UnixSocket &s) { return s.ReceiveVariableLengthMessage(c); }},
+        socket_);
   }
 
   // For SendMessage, the buffer pointer must be 4 bytes beyond
@@ -659,65 +639,51 @@ public:
   // to the socket rather than splitting it into 2.
   absl::StatusOr<ssize_t> SendMessage(char *buffer, size_t length,
                                       co::Coroutine *c = nullptr) {
-    switch (socket_.index()) {
-    case 0:
-      return std::get<TCPSocket>(socket_).SendMessage(buffer, length, c);
-    case 1:
-      return std::get<VirtualStreamSocket>(socket_).SendMessage(buffer, length,
-                                                                c);
-    case 2:
-      return std::get<UnixSocket>(socket_).SendMessage(buffer, length, c);
-    }
-    return absl::InternalError("Invalid socket type");
+    return std::visit(
+        EyeOfNewt{
+            [&](TCPSocket &s) { return s.SendMessage(buffer, length, c); },
+            [&](VirtualStreamSocket &s) {
+              return s.SendMessage(buffer, length, c);
+            },
+            [&](UnixSocket &s) { return s.SendMessage(buffer, length, c); }},
+        socket_);
   }
 
   absl::Status SetNonBlocking() {
-    switch (socket_.index()) {
-    case 0:
-      return std::get<TCPSocket>(socket_).SetNonBlocking();
-    case 1:
-      return std::get<VirtualStreamSocket>(socket_).SetNonBlocking();
-    case 2:
-      return std::get<UnixSocket>(socket_).SetNonBlocking();
-    }
-    return absl::InternalError("Invalid socket type");
+    return std::visit(
+        EyeOfNewt{[&](TCPSocket &s) { return s.SetNonBlocking(); },
+                   [&](VirtualStreamSocket &s) { return s.SetNonBlocking(); },
+                   [&](UnixSocket &s) { return s.SetNonBlocking(); }},
+        socket_);
   }
+
   // Get the fd on which to poll for non-blocking operations.
   FileDescriptor GetFileDescriptor() const {
-    switch (socket_.index()) {
-    case 0:
-      return std::get<TCPSocket>(socket_).GetFileDescriptor();
-    case 1:
-      return std::get<VirtualStreamSocket>(socket_).GetFileDescriptor();
-    case 2:
-      return std::get<UnixSocket>(socket_).GetFileDescriptor();
-    }
-    return FileDescriptor(); // Invalid socket type.
+    return std::visit(
+        EyeOfNewt{
+            [](const TCPSocket &s) { return s.GetFileDescriptor(); },
+            [](const VirtualStreamSocket &s) { return s.GetFileDescriptor(); },
+            [](const UnixSocket &s) { return s.GetFileDescriptor(); }},
+        socket_);
   }
 
   absl::Status SetCloseOnExec() {
-    switch (socket_.index()) {
-    case 0:
-      return std::get<TCPSocket>(socket_).SetCloseOnExec();
-    case 1:
-      return std::get<VirtualStreamSocket>(socket_).SetCloseOnExec();
-    case 2:
-      return std::get<UnixSocket>(socket_).SetCloseOnExec();
-    }
-    return absl::InternalError("Invalid socket type");
+    return std::visit(
+        EyeOfNewt{[](TCPSocket &s) { return s.SetCloseOnExec(); },
+                   [](VirtualStreamSocket &s) { return s.SetCloseOnExec(); },
+                   [](UnixSocket &s) { return s.SetCloseOnExec(); }},
+        socket_);
   }
 
   bool IsNonBlocking() const {
-    switch (socket_.index()) {
-    case 0:
-      return std::get<TCPSocket>(socket_).IsNonBlocking();
-    case 1:
-      return std::get<VirtualStreamSocket>(socket_).IsNonBlocking();
-    case 2:
-      return std::get<UnixSocket>(socket_).IsNonBlocking();
-    }
-    return false; // Invalid socket type.
+    return std::visit(
+        EyeOfNewt{
+            [](const TCPSocket &s) { return s.IsNonBlocking(); },
+            [](const VirtualStreamSocket &s) { return s.IsNonBlocking(); },
+            [](const UnixSocket &s) { return s.IsNonBlocking(); }},
+        socket_);
   }
+
   bool IsBlocking() const { return !IsNonBlocking(); }
 
 private:
