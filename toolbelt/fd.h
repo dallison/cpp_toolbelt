@@ -6,6 +6,7 @@
 #define __TOOLBELT_FD_H
 
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
 #include <cassert>
 #include <cerrno>
@@ -17,6 +18,7 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "coroutine.h"
 
 namespace toolbelt {
 
@@ -160,6 +162,7 @@ public:
       return absl::InternalError(absl::StrFormat(
           "Failed to set nonblocking mode on fd: %s", strerror(errno)));
     }
+    data_->non_blocking_ = true;
     return absl::OkStatus();
   }
 
@@ -180,6 +183,9 @@ public:
     return absl::OkStatus();
   }
 
+  absl::StatusOr<ssize_t> Read(void* buffer, size_t length, co::Coroutine* c = nullptr);
+  absl::StatusOr<ssize_t> Write(const void* buffer, size_t length,
+                                      co::Coroutine* c = nullptr);
 private:
   // Reference counted OS fd, shared among all FileDescriptors with the
   // same OS fd, provided you don't create two FileDescriptors with the
@@ -193,6 +199,7 @@ private:
       }
     }
     int fd = -1; // OS file descriptor.
+    bool non_blocking_ = false;
   };
 
   // The actual shared data.  If nullptr the FileDescriptor is invalid.
