@@ -90,8 +90,7 @@ public:
 
   VirtualAddress(uint32_t cid, uint32_t port);
 
-  VirtualAddress(const struct sockaddr_vm &addr)
-      : addr_(addr), valid_(true) {}
+  VirtualAddress(const struct sockaddr_vm &addr) : addr_(addr), valid_(true) {}
 
   const sockaddr_vm &GetAddress() const { return addr_; }
   socklen_t GetLength() const { return sizeof(addr_); }
@@ -146,8 +145,7 @@ public:
   SocketAddress(const VirtualAddress &addr) : address_(addr) {}
   SocketAddress(const std::string &addr) : address_(addr) {}
 
-  SocketAddress(const struct sockaddr_in &addr)
-      : address_(InetAddress(addr)) {}
+  SocketAddress(const struct sockaddr_in &addr) : address_(InetAddress(addr)) {}
 
   SocketAddress(const in_addr &addr, int port)
       : address_(InetAddress(addr, port)) {}
@@ -159,17 +157,48 @@ public:
       : address_(VirtualAddress(cid, port)) {}
 
   // Create a SocketAddress from a variant index and address.
-  SocketAddress(int index, const void* addr) {
+  SocketAddress(int index, const void *addr) {
     switch (index) {
     case kAddressInet:
-      address_ = InetAddress(*reinterpret_cast<const struct sockaddr_in *>(addr));
+      address_ =
+          InetAddress(*reinterpret_cast<const struct sockaddr_in *>(addr));
       break;
     case kAddressVirtual:
-      address_ = VirtualAddress(*reinterpret_cast<const struct sockaddr_vm *>(addr));
+      address_ =
+          VirtualAddress(*reinterpret_cast<const struct sockaddr_vm *>(addr));
       break;
     case kAddressUnix:
       address_ = std::string(reinterpret_cast<const char *>(addr));
       break;
+    default:
+      throw std::invalid_argument("Invalid socket address type");
+    }
+  }
+
+  // Assignment operators
+  SocketAddress &operator=(const InetAddress &addr) {
+    address_ = addr;
+    return *this;
+  }
+  SocketAddress &operator=(const VirtualAddress &addr) {
+    address_ = addr;
+    return *this;
+  }
+  SocketAddress &operator=(const std::string &addr) {
+    address_ = addr;
+    return *this;
+  }
+
+  static SocketAddress AnyPort(const SocketAddress &addr) {
+    switch (addr.Type()) {
+    case kAddressInet:
+      return SocketAddress(addr.GetInetAddress().IpAddress(),
+                           0); // Port is 0 for any port.
+    case kAddressVirtual:
+      return SocketAddress(addr.GetVirtualAddress().Cid(), VMADDR_PORT_ANY);
+    case kAddressUnix:
+      return SocketAddress(std::string(addr.GetUnixAddress()));
+
     default:
       throw std::invalid_argument("Invalid socket address type");
     }
@@ -212,7 +241,20 @@ public:
   }
 
   // What address type is in the variant.
-  int Index() const { return address_.index(); }
+  int Type() const { return address_.index(); }
+
+  int Port() const {
+    switch (address_.index()) {
+    case 0:
+      return std::get<InetAddress>(address_).Port();
+    case 1:
+      return std::get<VirtualAddress>(address_).Port();
+    case 2:
+      return 0; // Unix domain sockets don't have a port.
+    default:
+      throw std::invalid_argument("Invalid socket address type");
+    }
+  }
 
   // Provide support for Abseil hashing.
   friend bool operator==(const SocketAddress &a, const SocketAddress &b);
@@ -245,7 +287,8 @@ template <typename H> inline H AbslHashValue(H h, const SocketAddress &a) {
   case 1:
     return AbslHashValue(std::move(h), std::get<VirtualAddress>(a.address_));
   case 2:
-    return AbslHashValue(std::move(h), std::get<std::string>(a.address_));
+    return AbslHashValue(std::move(h),
+                         std::string_view(std::get<std::string>(a.address_)));
   default:
     return std::move(h);
   }
@@ -442,7 +485,7 @@ protected:
 };
 
 // Class that wraps the various stream-based sockets.
-class StreamSocket : public Socket {
+class StreamSocket {
 public:
   StreamSocket() = default;
   StreamSocket(const StreamSocket &s) = default;
@@ -452,7 +495,7 @@ public:
 
   // Binders for TCP, virtual, and Unix sockets.
   absl::Status Bind(const SocketAddress &addr, bool listen) {
-    switch (addr.Index()) {
+    switch (addr.Type()) {
     case SocketAddress::kAddressInet:
       socket_ = TCPSocket();
       return std::get<TCPSocket>(socket_).Bind(addr.GetInetAddress(), listen);
@@ -468,7 +511,7 @@ public:
   }
 
   absl::Status Connect(const SocketAddress &addr) {
-    switch (addr.Index()) {
+    switch (addr.Type()) {
     case SocketAddress::kAddressInet:
       return std::get<TCPSocket>(socket_).Connect(addr.GetInetAddress());
     case SocketAddress::kAddressVirtual:
@@ -526,6 +569,156 @@ public:
     }
     return SocketAddress(); // Invalid address.
   }
+
+  void Close() {
+    switch (socket_.index()) {
+    case 0:
+      std::get<TCPSocket>(socket_).Close();
+      break;
+    case 1:
+      std::get<VirtualStreamSocket>(socket_).Close();
+      break;
+    case 2:
+      std::get<UnixSocket>(socket_).Close();
+      break;
+    }
+  }
+  bool Connected() const {
+    switch (socket_.index()) {
+    case 0:
+      return std::get<TCPSocket>(socket_).Connected();
+    case 1:
+      return std::get<VirtualStreamSocket>(socket_).Connected();
+    case 2:
+      return std::get<UnixSocket>(socket_).Connected();
+    }
+    return false; // Invalid socket type.
+  }
+
+  // Send and receive raw buffers.
+  absl::StatusOr<ssize_t> Receive(char *buffer, size_t buflen,
+                                  co::Coroutine *c = nullptr) {
+    switch (socket_.index()) {
+    case 0:
+      return std::get<TCPSocket>(socket_).Receive(buffer, buflen, c);
+    case 1:
+      return std::get<VirtualStreamSocket>(socket_).Receive(buffer, buflen, c);
+    case 2:
+      return std::get<UnixSocket>(socket_).Receive(buffer, buflen, c);
+    }
+    return absl::InternalError("Invalid socket type");
+  }
+
+  absl::StatusOr<ssize_t> Send(const char *buffer, size_t length,
+                               co::Coroutine *c = nullptr) {
+    switch (socket_.index()) {
+    case 0:
+      return std::get<TCPSocket>(socket_).Send(buffer, length, c);
+    case 1:
+      return std::get<VirtualStreamSocket>(socket_).Send(buffer, length, c);
+    case 2:
+      return std::get<UnixSocket>(socket_).Send(buffer, length, c);
+    }
+    return absl::InternalError("Invalid socket type");
+  }
+  // Send and receive length-delimited message.  The length is a 4-byte
+  // network byte order (big endian) int as the first 4 bytes and
+  // contains the length of the message.
+  absl::StatusOr<ssize_t> ReceiveMessage(char *buffer, size_t buflen,
+                                         co::Coroutine *c = nullptr) {
+    switch (socket_.index()) {
+    case 0:
+      return std::get<TCPSocket>(socket_).ReceiveMessage(buffer, buflen, c);
+    case 1:
+      return std::get<VirtualStreamSocket>(socket_).ReceiveMessage(buffer,
+                                                                   buflen, c);
+    case 2:
+      return std::get<UnixSocket>(socket_).ReceiveMessage(buffer, buflen, c);
+    }
+    return absl::InternalError("Invalid socket type");
+  }
+
+  absl::StatusOr<std::vector<char>>
+  ReceiveVariableLengthMessage(co::Coroutine *c = nullptr) {
+    switch (socket_.index()) {
+    case 0:
+      return std::get<TCPSocket>(socket_).ReceiveVariableLengthMessage(c);
+    case 1:
+      return std::get<VirtualStreamSocket>(socket_)
+          .ReceiveVariableLengthMessage(c);
+    case 2:
+      return std::get<UnixSocket>(socket_).ReceiveVariableLengthMessage(c);
+    }
+    return absl::InternalError("Invalid socket type");
+  }
+
+  // For SendMessage, the buffer pointer must be 4 bytes beyond
+  // the actual buffer start, which must be length+4 bytes
+  // long.  We write exactly length+4 bytes to the socket starting
+  // at buffer-4.  This is to allow us to do a single send
+  // to the socket rather than splitting it into 2.
+  absl::StatusOr<ssize_t> SendMessage(char *buffer, size_t length,
+                                      co::Coroutine *c = nullptr) {
+    switch (socket_.index()) {
+    case 0:
+      return std::get<TCPSocket>(socket_).SendMessage(buffer, length, c);
+    case 1:
+      return std::get<VirtualStreamSocket>(socket_).SendMessage(buffer, length,
+                                                                c);
+    case 2:
+      return std::get<UnixSocket>(socket_).SendMessage(buffer, length, c);
+    }
+    return absl::InternalError("Invalid socket type");
+  }
+
+  absl::Status SetNonBlocking() {
+    switch (socket_.index()) {
+    case 0:
+      return std::get<TCPSocket>(socket_).SetNonBlocking();
+    case 1:
+      return std::get<VirtualStreamSocket>(socket_).SetNonBlocking();
+    case 2:
+      return std::get<UnixSocket>(socket_).SetNonBlocking();
+    }
+    return absl::InternalError("Invalid socket type");
+  }
+  // Get the fd on which to poll for non-blocking operations.
+  FileDescriptor GetFileDescriptor() const {
+    switch (socket_.index()) {
+    case 0:
+      return std::get<TCPSocket>(socket_).GetFileDescriptor();
+    case 1:
+      return std::get<VirtualStreamSocket>(socket_).GetFileDescriptor();
+    case 2:
+      return std::get<UnixSocket>(socket_).GetFileDescriptor();
+    }
+    return FileDescriptor(); // Invalid socket type.
+  }
+
+  absl::Status SetCloseOnExec() {
+    switch (socket_.index()) {
+    case 0:
+      return std::get<TCPSocket>(socket_).SetCloseOnExec();
+    case 1:
+      return std::get<VirtualStreamSocket>(socket_).SetCloseOnExec();
+    case 2:
+      return std::get<UnixSocket>(socket_).SetCloseOnExec();
+    }
+    return absl::InternalError("Invalid socket type");
+  }
+
+  bool IsNonBlocking() const {
+    switch (socket_.index()) {
+    case 0:
+      return std::get<TCPSocket>(socket_).IsNonBlocking();
+    case 1:
+      return std::get<VirtualStreamSocket>(socket_).IsNonBlocking();
+    case 2:
+      return std::get<UnixSocket>(socket_).IsNonBlocking();
+    }
+    return false; // Invalid socket type.
+  }
+  bool IsBlocking() const { return !IsNonBlocking(); }
 
 private:
   // Constructors with various socket types.
