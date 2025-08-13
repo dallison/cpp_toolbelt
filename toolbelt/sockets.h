@@ -92,7 +92,7 @@ class VirtualAddress {
 public:
   VirtualAddress() = default;
 
-  // An address with VMADDR_CID_ANY and the give port number (host order)
+  // An address with VMADDR_CID_ANY and the given port number
   VirtualAddress(uint32_t port);
 
   VirtualAddress(uint32_t cid, uint32_t port);
@@ -103,11 +103,9 @@ public:
   socklen_t GetLength() const { return sizeof(addr_); }
   bool Valid() const { return valid_; }
 
-  // CID and port are returned in host byte order.
   uint32_t Cid() const { return addr_.svm_cid; }
   uint32_t Port() const { return addr_.svm_port; }
 
-  // Port is in host byte order.
   void SetPort(uint32_t port) { addr_.svm_port = port; }
 
   void SetAddress(const struct sockaddr_vm &addr) { addr_ = addr; }
@@ -126,7 +124,7 @@ public:
 #endif
 
 private:
-  struct sockaddr_vm addr_; // In network byte order.
+  struct sockaddr_vm addr_;
   bool valid_ = false;
 };
 
