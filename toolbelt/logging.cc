@@ -1,4 +1,4 @@
-// Copyright 2023 David Allison
+// Copyright 2023,2025 David Allison
 // All Rights Reserved
 // See LICENSE file for licensing information.
 
@@ -132,11 +132,26 @@ void Logger::Log(LogLevel level, const char *fmt, ...) {
   va_end(ap);
 }
 
+absl::Status Logger::SetTeeFile(const std::string &filename, bool truncate) {
+  if (tee_stream_ != nullptr) {
+    fclose(tee_stream_);
+  }
+  tee_stream_ = fopen(filename.c_str(), truncate ? "w" : "a");
+  if (tee_stream_ == nullptr) {
+    return absl::InternalError(absl::StrFormat("Failed to open tee file %s: %s",
+                                               filename, strerror(errno)));
+  }
+  return absl::OkStatus();
+}
+
 void Logger::VLog(LogLevel level, const char *fmt, va_list ap) {
   if (level < min_level_) {
     return;
   }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wformat-nonliteral"
   size_t n = vsnprintf(buffer_, sizeof(buffer_), fmt, ap);
+#pragma clang diagnostic pop
 
   // Strip final \n if present.  Refactoring from printf can leave
   // this in place.
@@ -196,6 +211,11 @@ void Logger::Log(LogLevel level, uint64_t timestamp, const std::string &source,
     break;
   }
 
+  if (tee_stream_ != nullptr) {
+    fprintf(tee_stream_, "%s %s: %s: %s: %s\n", timebuf, subsystem_.c_str(),
+            LogLevelAsString(level), source.c_str(), text.c_str());
+    fflush(tee_stream_);
+  }
   if (level == LogLevel::kFatal) {
     abort();
   }
@@ -311,7 +331,9 @@ void Logger::LogColumnar(const char *timebuf, LogLevel level,
     // clang-format off.
     fprintf(output_stream_, "%-*s%s%-*s%s\n", prefix_length,
             first_line ? prefix.c_str() : "",
-            color::SetColor(ColorForLogLevel(level)).c_str(), int(column_widths_[4]), segment.c_str(), color::ResetColor().c_str());
+            color::SetColor(ColorForLogLevel(level)).c_str(),
+            int(column_widths_[4]), segment.c_str(),
+            color::ResetColor().c_str());
     // clang-format on
     start += segment.size();
     if (start >= text.size()) {

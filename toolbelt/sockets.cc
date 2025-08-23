@@ -262,7 +262,6 @@ absl::StatusOr<ssize_t> Socket::SendMessage(char *buffer, size_t length,
   // the address passed as the buffer.
   int32_t *lengthptr = reinterpret_cast<int32_t *>(buffer) - 1;
   *lengthptr = htonl(length);
-
   ssize_t n = SendFully(c, fd_.Fd(), reinterpret_cast<char *>(lengthptr),
                         length + sizeof(int32_t), IsBlocking());
   if (n == -1) {
