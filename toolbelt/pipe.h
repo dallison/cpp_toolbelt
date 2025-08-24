@@ -21,6 +21,8 @@ public:
   Pipe() = default;
   Pipe(int r, int w) : read_(r), write_(w) {}
 
+  virtual ~Pipe() = default;
+  
   Pipe(const Pipe &) = default;
   Pipe(Pipe &&) = default;
   Pipe &operator=(const Pipe &) = default;
@@ -60,11 +62,11 @@ public:
 
   absl::StatusOr<size_t> GetPipeSize();
   absl::Status SetPipeSize(size_t size);
-  
-  absl::StatusOr<ssize_t> Read(char *buffer, size_t length,
-                               co::Coroutine *c = nullptr);
-  absl::StatusOr<ssize_t> Write(const char *buffer, size_t length,
-                                co::Coroutine *c = nullptr);
+
+  virtual absl::StatusOr<ssize_t> Read(char *buffer, size_t length,
+                                       co::Coroutine *c = nullptr);
+  virtual absl::StatusOr<ssize_t> Write(const char *buffer, size_t length,
+                                        co::Coroutine *c = nullptr);
 
 protected:
   FileDescriptor read_;
@@ -101,6 +103,16 @@ public:
 
   SharedPtrPipe() = default;
   SharedPtrPipe(int r, int w) : Pipe(r, w) {}
+
+  // You can't use raw buffers with shared ptr pipes.
+  absl::StatusOr<ssize_t> Read(char *buffer, size_t length,
+                               co::Coroutine *c = nullptr) override {
+    return absl::InternalError("Not supported on SharedPtrPipe");
+  }
+  absl::StatusOr<ssize_t> Write(const char *buffer, size_t length,
+                                co::Coroutine *c = nullptr) override {
+    return absl::InternalError("Not supported on SharedPtrPipe");
+  }
 
   absl::StatusOr<std::shared_ptr<T>> Read(co::Coroutine *c = nullptr) {
     char buffer[sizeof(std::shared_ptr<T>)];
