@@ -22,7 +22,7 @@ public:
   Pipe(int r, int w) : read_(r), write_(w) {}
 
   virtual ~Pipe() = default;
-  
+
   Pipe(const Pipe &) = default;
   Pipe(Pipe &&) = default;
   Pipe &operator=(const Pipe &) = default;
