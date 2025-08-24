@@ -302,3 +302,45 @@ TEST(PipeTest, CoroutinePipeReadAndMultiWrite) {
   });
   scheduler.Run();
 }
+
+TEST(PipeTest, CoroutineOverFullPipeReadAndWriteMultiwriter) {
+  co::CoroutineScheduler scheduler;
+  auto p = toolbelt::Pipe::Create();
+  ASSERT_OK(p);
+  auto pipe = std::move(*p);
+
+  constexpr int kPipeSize = 65536;
+  constexpr int kMessageSize = 4;
+  constexpr int kNumMessages = 10 * kPipeSize / kMessageSize;
+
+  co::Coroutine reader(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
+    for (int i = 0; i < kNumMessages * 2; i++) {
+      char buffer[20];
+      auto r = pipe.Read(buffer, kMessageSize, c);
+      ASSERT_OK(r);
+      ASSERT_EQ(*r, kMessageSize);
+      // Can be in either order.
+      bool ok = (strcmp(buffer, "1234") == 0) || (strcmp(buffer, "4321") == 0);
+      ASSERT_TRUE(ok);
+    }
+  });
+
+  co::Coroutine writer1(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
+    for (int i = 0; i < kNumMessages; i++) {
+      const char *msg = "1234";
+      auto s = pipe.Write(msg, kMessageSize, c);
+      ASSERT_OK(s);
+      ASSERT_EQ(*s, kMessageSize);
+    }
+  });
+
+  co::Coroutine writer2(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
+    for (int i = 0; i < kNumMessages; i++) {
+      const char *msg = "4321";
+      auto s = pipe.Write(msg, kMessageSize, c);
+      ASSERT_OK(s);
+      ASSERT_EQ(*s, kMessageSize);
+    }
+  });
+  scheduler.Run();
+}
