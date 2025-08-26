@@ -6,8 +6,10 @@
 #include "coroutine.h"
 #include "toolbelt/fd.h"
 
+#include <chrono>
 #include <errno.h>
 #include <memory>
+#include <thread>
 #include <unistd.h>
 
 namespace toolbelt {
@@ -69,6 +71,49 @@ public:
                                         co::Coroutine *c = nullptr);
 
 protected:
+  // RAII classes for keeping coroutines from interleaving reads or writes on a
+  // pipe. When using coroutines we are fine until the pipe fills up.  We can't
+  // allow another coroutine to come in and write to the pipe (or read from it)
+  // when the original coroutine is context switched out.
+  //
+  // Same applies to non-coroutine use except we block with a sleep.
+  struct ScopedRead {
+    ScopedRead(Pipe &p, co::Coroutine *c) : pipe(p) {
+      while (pipe.read_in_progress_) {
+        if (c) {
+          c->Yield();
+        } else {
+          if (!pipe.read_.IsNonBlocking()) {
+            break;
+          }
+          std::this_thread::sleep_for(std::chrono::microseconds(10));
+        }
+      }
+      pipe.read_in_progress_ = true;
+    }
+
+    ~ScopedRead() { pipe.read_in_progress_ = false; }
+    Pipe &pipe;
+  };
+
+  struct ScopedWrite {
+    ScopedWrite(Pipe &p, co::Coroutine *c) : pipe(p) {
+      while (pipe.write_in_progress_) {
+        if (c) {
+          c->Yield();
+        } else {
+          if (!pipe.write_.IsNonBlocking()) {
+            break;
+          }
+          std::this_thread::sleep_for(std::chrono::microseconds(10));
+        }
+      }
+      pipe.write_in_progress_ = true;
+    }
+
+    ~ScopedWrite() { pipe.write_in_progress_ = false; }
+    Pipe &pipe;
+  };
   FileDescriptor read_;
   FileDescriptor write_;
   // We really don't want coroutines to interleave reads or writes on the
@@ -118,27 +163,20 @@ public:
     char buffer[sizeof(std::shared_ptr<T>)];
     size_t length = sizeof(buffer);
     size_t total = 0;
-    if (c != nullptr) {
-      // If another coroutine is already reading, wait for it to finish.
-      while (read_in_progress_) {
-        c->Yield();
-      }
-      read_in_progress_ = true;
-    }
+    ScopedRead sc(*this, c);
+
     while (total < length) {
       if (c != nullptr) {
         // Coroutines do a context switch before reading.  If we use PollAndWait
         // we can get starvation.
         int fd = c->Wait(read_.Fd(), POLLIN);
         if (fd != read_.Fd()) {
-          read_in_progress_ = false;
           return absl::InternalError("Interrupted");
         }
       }
       ssize_t n = ::read(read_.Fd(), buffer + total, length - total);
       if (n == 0) {
         // EOF
-        read_in_progress_ = false;
         return absl::InternalError("EOF");
       }
       if (n == -1) {
@@ -147,13 +185,11 @@ public:
         }
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
           if (c == nullptr) {
-            read_in_progress_ = false;
             return absl::InternalError("Read would block");
           }
           if (read_.IsNonBlocking()) {
             int fd = c->Wait(read_.Fd(), POLLIN);
             if (fd != read_.Fd()) {
-              read_in_progress_ = false;
               return absl::InternalError("Interrupted");
             }
           }
@@ -161,7 +197,6 @@ public:
       }
       total += n;
     }
-    read_in_progress_ = false;
     // Ref count = N + 1.
     auto copy = *reinterpret_cast<std::shared_ptr<T> *>(buffer);
     auto *p = reinterpret_cast<std::shared_ptr<T> *>(buffer);
@@ -174,18 +209,27 @@ public:
     // On entry, ref count for p = N
     char buffer[sizeof(std::shared_ptr<T>)];
 
+    ScopedWrite sw(*this, c);
+
     // Assign the pointer to the buffer. This will increment the reference count
     // but not decrement it when the function returns, thus adding the
     // in-transit reference.
     new (buffer) std::shared_ptr<T>(p);
 
-    if (c != nullptr) {
-      // If another coroutine is already writing, wait for it to finish.
-      while (write_in_progress_) {
-        c->Yield();
+    struct ScopedReference {
+      ScopedReference(char *buffer) : buffer_(buffer) {}
+      ~ScopedReference() {
+        if (buffer_ == nullptr) {
+          return;
+        }
+        auto *ptr = reinterpret_cast<std::shared_ptr<T> *>(buffer_);
+        ptr->reset();
       }
-      write_in_progress_ = true;
-    }
+      char *buffer_;
+    };
+
+    ScopedReference sr(buffer);
+
     size_t total = 0;
     size_t length = sizeof(buffer);
     while (total < length) {
@@ -195,14 +239,12 @@ public:
         // before the write.
         int fd = c->PollAndWait(write_.Fd(), POLLOUT);
         if (fd != write_.Fd()) {
-          write_in_progress_ = false;
           return absl::InternalError("Interrupted");
         }
       }
       ssize_t n = ::write(write_.Fd(), buffer + total, length - total);
       if (n == 0) {
         // EOF
-        write_in_progress_ = false;
         return absl::InternalError("EOF");
       }
       if (n == -1) {
@@ -211,13 +253,11 @@ public:
         }
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
           if (c == nullptr) {
-            write_in_progress_ = false;
             return absl::InternalError("Write would block");
           }
           if (write_.IsNonBlocking()) {
             int fd = c->Wait(write_.Fd(), POLLOUT);
             if (fd != write_.Fd()) {
-              write_in_progress_ = false;
               return absl::InternalError("Interrupted");
             }
           }
@@ -225,7 +265,8 @@ public:
       }
       total += n;
     }
-    write_in_progress_ = false;
+    // Prevent deref of pointer in buffer.
+    sr.buffer_ = nullptr;
     // Ref count = N+1
     return absl::OkStatus();
   }
