@@ -56,4 +56,132 @@ absl::Status Pipe::Open(int flags) {
   return absl::OkStatus();
 }
 
+absl::StatusOr<size_t> Pipe::GetPipeSize() {
+#if defined(__linux__)
+  int e = fcntl(read_.Fd(), F_GETPIPE_SZ, 0);
+  if (e == -1) {
+    return absl::InternalError(
+        absl::StrFormat("Failed to get pipe size: %s", strerror(errno)));
+  }
+  return static_cast<size_t>(e);
+#else
+  return absl::UnimplementedError("GetPipeSize is not implemented on this OS");
+#endif
+}
+
+absl::Status Pipe::SetPipeSize(size_t size) {
+#if defined(__linux__)
+  int e = fcntl(write_.Fd(), F_SETPIPE_SZ, size);
+  if (e == -1) {
+    return absl::InternalError(
+        absl::StrFormat("Failed to set pipe size: %s", strerror(errno)));
+  }
+  return absl::OkStatus();
+#else
+  return absl::UnimplementedError("SetPipeSize is not implemented on this OS");
+#endif
+}
+
+absl::StatusOr<ssize_t> Pipe::Read(char *buffer, size_t length,
+                                   co::Coroutine *c) {
+  size_t total = 0;
+  if (c != nullptr) {
+    // If another coroutine is already reading, wait for it to finish.
+    while (read_in_progress_) {
+      c->Yield();
+    }
+    read_in_progress_ = true;
+  }
+  while (total < length) {
+    if (c != nullptr) {
+      // Coroutines do a context switch before reading.  If we use PollAndWait
+      // we can get starvation.
+      int fd = c->Wait(read_.Fd(), POLLIN);
+      if (fd != read_.Fd()) {
+        read_in_progress_ = false;
+        return absl::InternalError("Interrupted");
+      }
+    }
+    ssize_t n = ::read(read_.Fd(), buffer + total, length - total);
+    if (n == 0) {
+      // EOF
+      read_in_progress_ = false;
+      return absl::InternalError("EOF");
+    }
+    if (n == -1) {
+      if (errno == EINTR) {
+        continue;
+      }
+      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        if (c == nullptr) {
+          read_in_progress_ = false;
+          return absl::InternalError("Read would block");
+        }
+        if (read_.IsNonBlocking()) {
+          int fd = c->Wait(read_.Fd(), POLLIN);
+          if (fd != read_.Fd()) {
+            read_in_progress_ = false;
+            return absl::InternalError("Interrupted");
+          }
+        }
+      }
+    }
+    total += n;
+  }
+  read_in_progress_ = false;
+  return total;
+}
+
+absl::StatusOr<ssize_t> Pipe::Write(const char *buffer, size_t length,
+                                    co::Coroutine *c) {
+  size_t total = 0;
+  if (c != nullptr) {
+    // If another coroutine is already writing, wait for it to finish.
+    while (write_in_progress_) {
+      c->Yield();
+    }
+    write_in_progress_ = true;
+  }
+
+  while (total < length) {
+    if (c != nullptr) {
+      // When writing we use PollAndWait to cause the write to happen as soon as
+      // possible.  This speeds up writes as there is no context switch before
+      // the write.
+      int fd = c->PollAndWait(write_.Fd(), POLLOUT);
+      if (fd != write_.Fd()) {
+        write_in_progress_ = false;
+        return absl::InternalError("Interrupted");
+      }
+    }
+    ssize_t n = ::write(write_.Fd(), buffer + total, length - total);
+    if (n == 0) {
+      // EOF
+      write_in_progress_ = false;
+      return absl::InternalError("EOF");
+    }
+    if (n == -1) {
+      if (errno == EINTR) {
+        continue;
+      }
+      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        if (c == nullptr) {
+          write_in_progress_ = false;
+          return absl::InternalError("Write would block");
+        }
+        if (write_.IsNonBlocking()) {
+          int fd = c->Wait(write_.Fd(), POLLOUT);
+          if (fd != write_.Fd()) {
+            write_in_progress_ = false;
+            return absl::InternalError("Interrupted");
+          }
+        }
+      }
+    }
+    total += n;
+  }
+  write_in_progress_ = false;
+  return total;
+}
+
 } // namespace toolbelt
