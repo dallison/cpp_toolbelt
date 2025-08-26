@@ -85,27 +85,20 @@ absl::Status Pipe::SetPipeSize(size_t size) {
 absl::StatusOr<ssize_t> Pipe::Read(char *buffer, size_t length,
                                    co::Coroutine *c) {
   size_t total = 0;
-  if (c != nullptr) {
-    // If another coroutine is already reading, wait for it to finish.
-    while (read_in_progress_) {
-      c->Yield();
-    }
-    read_in_progress_ = true;
-  }
+  ScopedRead sc(*this, c);
+
   while (total < length) {
     if (c != nullptr) {
       // Coroutines do a context switch before reading.  If we use PollAndWait
       // we can get starvation.
       int fd = c->Wait(read_.Fd(), POLLIN);
       if (fd != read_.Fd()) {
-        read_in_progress_ = false;
         return absl::InternalError("Interrupted");
       }
     }
     ssize_t n = ::read(read_.Fd(), buffer + total, length - total);
     if (n == 0) {
       // EOF
-      read_in_progress_ = false;
       return absl::InternalError("EOF");
     }
     if (n == -1) {
@@ -114,13 +107,11 @@ absl::StatusOr<ssize_t> Pipe::Read(char *buffer, size_t length,
       }
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
         if (c == nullptr) {
-          read_in_progress_ = false;
           return absl::InternalError("Read would block");
         }
         if (read_.IsNonBlocking()) {
           int fd = c->Wait(read_.Fd(), POLLIN);
           if (fd != read_.Fd()) {
-            read_in_progress_ = false;
             return absl::InternalError("Interrupted");
           }
         }
@@ -128,20 +119,13 @@ absl::StatusOr<ssize_t> Pipe::Read(char *buffer, size_t length,
     }
     total += n;
   }
-  read_in_progress_ = false;
   return total;
 }
 
 absl::StatusOr<ssize_t> Pipe::Write(const char *buffer, size_t length,
                                     co::Coroutine *c) {
   size_t total = 0;
-  if (c != nullptr) {
-    // If another coroutine is already writing, wait for it to finish.
-    while (write_in_progress_) {
-      c->Yield();
-    }
-    write_in_progress_ = true;
-  }
+  ScopedWrite sc(*this, c);
 
   while (total < length) {
     if (c != nullptr) {
@@ -150,14 +134,12 @@ absl::StatusOr<ssize_t> Pipe::Write(const char *buffer, size_t length,
       // the write.
       int fd = c->PollAndWait(write_.Fd(), POLLOUT);
       if (fd != write_.Fd()) {
-        write_in_progress_ = false;
         return absl::InternalError("Interrupted");
       }
     }
     ssize_t n = ::write(write_.Fd(), buffer + total, length - total);
     if (n == 0) {
       // EOF
-      write_in_progress_ = false;
       return absl::InternalError("EOF");
     }
     if (n == -1) {
@@ -166,13 +148,11 @@ absl::StatusOr<ssize_t> Pipe::Write(const char *buffer, size_t length,
       }
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
         if (c == nullptr) {
-          write_in_progress_ = false;
           return absl::InternalError("Write would block");
         }
         if (write_.IsNonBlocking()) {
           int fd = c->Wait(write_.Fd(), POLLOUT);
           if (fd != write_.Fd()) {
-            write_in_progress_ = false;
             return absl::InternalError("Interrupted");
           }
         }
@@ -180,7 +160,6 @@ absl::StatusOr<ssize_t> Pipe::Write(const char *buffer, size_t length,
     }
     total += n;
   }
-  write_in_progress_ = false;
   return total;
 }
 
