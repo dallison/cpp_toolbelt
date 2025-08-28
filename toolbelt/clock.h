@@ -24,17 +24,13 @@ uint64_t current_timebase;
 // Current monotonic time in nanoseconds.
 inline uint64_t Now() {
 #if defined(__APPLE__)
-  if (!timebase_set) {
-    mach_timebase_info(&timebase);
-    struct timespec tp;
-    clock_gettime(CLOCK_REALTIME, &tp);
-    current_timebase = (static_cast<uint64_t>(tp.tv_sec) * 1000000000LL +
-                        static_cast<uint64_t>(tp.tv_nsec)) -
-                       mach_absolute_time() * timebase.numer / timebase.denom;
-    timebase_set = true;
-  }
-  return current_timebase +
-         mach_absolute_time() * timebase.numer / timebase.denom;
+  uint64_t mach_time = mach_absolute_time();
+  mach_timebase_info_data_t timebase_info;
+  mach_timebase_info(&timebase_info);
+
+  // Convert to nanoseconds
+  uint64_t nanoseconds = mach_time * timebase_info.numer / timebase_info.denom;
+  return nanoseconds;
 #else
   struct timespec tp;
   clock_gettime(CLOCK_MONOTONIC, &tp);
