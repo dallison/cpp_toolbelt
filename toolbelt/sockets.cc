@@ -9,6 +9,7 @@
 #include <netinet/in.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -31,24 +32,22 @@ InetAddress::InetAddress(const in_addr &ip, int port) {
   valid_ = true;
   addr_ = {
 #if defined(_APPLE__)
-    .sin_len = sizeof(int),
+      .sin_len = sizeof(int),
 #endif
-    .sin_family = AF_INET,
-    .sin_port = htons(port),
-    .sin_addr = {.s_addr = htonl(ip.s_addr)}
-  };
+      .sin_family = AF_INET,
+      .sin_port = htons(port),
+      .sin_addr = {.s_addr = htonl(ip.s_addr)}};
 }
 
 InetAddress::InetAddress(int port) {
   valid_ = true;
   addr_ = {
 #if defined(_APPLE__)
-    .sin_len = sizeof(int),
+      .sin_len = sizeof(int),
 #endif
-    .sin_family = AF_INET,
-    .sin_port = htons(port),
-    .sin_addr = {.s_addr = INADDR_ANY}
-  };
+      .sin_family = AF_INET,
+      .sin_port = htons(port),
+      .sin_addr = {.s_addr = INADDR_ANY}};
 }
 
 InetAddress::InetAddress(const std::string &hostname, int port) {
@@ -68,18 +67,66 @@ InetAddress::InetAddress(const std::string &hostname, int port) {
   valid_ = true;
   addr_ = {
 #if defined(_APPLE__)
-    .sin_len = sizeof(int),
+      .sin_len = sizeof(int),
 #endif
-    .sin_family = AF_INET,
-    .sin_port = htons(port),
-    .sin_addr = {.s_addr = ipaddr}
-  };
+      .sin_family = AF_INET,
+      .sin_port = htons(port),
+      .sin_addr = {.s_addr = ipaddr}};
 }
 
 std::string InetAddress::ToString() const {
   char buf[INET_ADDRSTRLEN];
   inet_ntop(AF_INET, &addr_.sin_addr, buf, sizeof(buf));
   return absl::StrFormat("%s:%d", buf, ntohs(addr_.sin_port));
+}
+
+// Virtual (vsock) addresses.
+
+VirtualAddress::VirtualAddress(uint32_t cid, uint32_t port) {
+  valid_ = true;
+  memset(&addr_, 0, sizeof(addr_));
+  addr_ = {
+#if defined(_APPLE__)
+      .svm_len = sizeof(struct sockaddr_vm),
+#endif
+      .svm_family = AF_VSOCK,
+      .svm_port = port,
+      .svm_cid = cid};
+}
+
+VirtualAddress::VirtualAddress(uint32_t port) {
+  valid_ = true;
+  memset(&addr_, 0, sizeof(addr_));
+  addr_ = {
+#if defined(_APPLE__)
+      .svm_len = sizeof(struct sockaddr_vm),
+#endif
+      .svm_family = AF_VSOCK,
+      .svm_port = port,
+      .svm_cid = VMADDR_CID_ANY};
+}
+
+VirtualAddress VirtualAddress::HypervisorAddress(uint32_t port) {
+  return VirtualAddress(VMADDR_CID_HYPERVISOR, port);
+}
+
+VirtualAddress VirtualAddress::HostAddress(uint32_t port) {
+  return VirtualAddress(VMADDR_CID_HOST, port);
+}
+
+// Any address.
+VirtualAddress VirtualAddress::AnyAddress(uint32_t port) {
+  return VirtualAddress(VMADDR_CID_ANY, port);
+}
+
+#if defined(__linux__)
+VirtualAddress VirtualAddress::LocalAddress(uint32_t port) {
+  return VirtualAddress(VMADDR_CID_LOCAL, port);
+}
+#endif
+
+std::string VirtualAddress::ToString() const {
+  return absl::StrFormat("%d:%d", addr_.svm_cid, addr_.svm_port);
 }
 
 static ssize_t ReceiveFully(co::Coroutine *c, int fd, size_t length,
@@ -303,10 +350,11 @@ absl::Status UnixSocket::Bind(const std::string &pathname, bool listen) {
   if (listen) {
     ::listen(fd_.Fd(), 10);
   }
+  bound_address_ = pathname;
   return absl::OkStatus();
 }
 
-absl::StatusOr<UnixSocket> UnixSocket::Accept(co::Coroutine *c) {
+absl::StatusOr<UnixSocket> UnixSocket::Accept(co::Coroutine *c) const {
   if (!fd_.Valid()) {
     return absl::InternalError("UnixSocket is not valid");
   }
@@ -322,7 +370,24 @@ absl::StatusOr<UnixSocket> UnixSocket::Accept(co::Coroutine *c) {
         absl::StrFormat("Failed to accept unix socket connection on fd %d: %s",
                         fd_.Fd(), strerror(errno)));
   }
-  return UnixSocket(new_fd, /*connected=*/true);
+  auto new_socket = UnixSocket(new_fd, /*connected=*/true);
+
+  struct sockaddr_un bound;
+  socklen_t len = sizeof(bound);
+  int e =
+      getsockname(new_fd, reinterpret_cast<struct sockaddr *>(&bound), &len);
+  if (e == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Failed to obtain bound address for accepted socket: %s",
+        strerror(errno)));
+  }
+#ifdef __linux__
+  new_socket.bound_address_ = bound.sun_path + 1;
+#else
+  new_socket.bound_address_ = bound.sun_path;
+
+#endif
+  return new_socket;
 }
 
 absl::Status UnixSocket::Connect(const std::string &pathname) {
@@ -454,6 +519,44 @@ absl::Status UnixSocket::ReceiveFds(std::vector<FileDescriptor> &fds,
   return absl::OkStatus();
 }
 
+absl::StatusOr<std::string> UnixSocket::GetPeerName() const {
+  if (!fd_.Valid()) {
+    return absl::InternalError("Socket is not valid");
+  }
+  struct sockaddr_un peer;
+  socklen_t len = sizeof(peer);
+  int e =
+      getpeername(fd_.Fd(), reinterpret_cast<struct sockaddr *>(&peer), &len);
+  if (e == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Failed to obtain peer address for socket: %s", strerror(errno)));
+  }
+#if defined(__linux__)
+  return std::string(peer.sun_path + 1);
+#else
+  return std::string(peer.sun_path);
+#endif
+}
+
+absl::StatusOr<std::string> UnixSocket::LocalAddress() const {
+  if (!fd_.Valid()) {
+    return absl::InternalError("Socket is not valid");
+  }
+  struct sockaddr_un local;
+  socklen_t len = sizeof(local);
+  int e =
+      getsockname(fd_.Fd(), reinterpret_cast<struct sockaddr *>(&local), &len);
+  if (e == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Failed to obtain local address for socket: %s", strerror(errno)));
+  }
+#if defined(__linux__)
+  return std::string(local.sun_path + 1);
+#else
+  return std::string(local.sun_path);
+#endif
+}
+
 // Network socket.
 absl::Status NetworkSocket::Connect(const InetAddress &addr) {
   if (!fd_.Valid()) {
@@ -527,7 +630,7 @@ absl::Status TCPSocket::Bind(const InetAddress &addr, bool listen) {
   return absl::OkStatus();
 }
 
-absl::StatusOr<TCPSocket> TCPSocket::Accept(co::Coroutine *c) {
+absl::StatusOr<TCPSocket> TCPSocket::Accept(co::Coroutine *c) const {
   if (!fd_.Valid()) {
     return absl::InternalError("Socket is not valid");
   }
@@ -552,8 +655,39 @@ absl::StatusOr<TCPSocket> TCPSocket::Accept(co::Coroutine *c) {
   return new_socket;
 }
 
+absl::StatusOr<InetAddress> TCPSocket::GetPeerName() const {
+  if (!fd_.Valid()) {
+    return absl::InternalError("Socket is not valid");
+  }
+  struct sockaddr_in peer;
+  socklen_t len = sizeof(peer);
+  int e =
+      getpeername(fd_.Fd(), reinterpret_cast<struct sockaddr *>(&peer), &len);
+  if (e == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Failed to obtain peer address for socket: %s", strerror(errno)));
+  }
+  return InetAddress(peer);
+}
+
+absl::StatusOr<InetAddress> TCPSocket::LocalAddress(int port) const {
+  if (!fd_.Valid()) {
+    return absl::InternalError("Socket is not valid");
+  }
+  struct sockaddr_in local;
+  socklen_t len = sizeof(local);
+  int e =
+      getsockname(fd_.Fd(), reinterpret_cast<struct sockaddr *>(&local), &len);
+  if (e == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Failed to obtain local address for socket: %s", strerror(errno)));
+  }
+  return InetAddress(local);
+}
+
 // UDP socket
-UDPSocket::UDPSocket() : NetworkSocket(socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) {}
+UDPSocket::UDPSocket()
+    : NetworkSocket(socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) {}
 
 absl::Status UDPSocket::Bind(const InetAddress &addr) {
   int e =
@@ -572,10 +706,11 @@ absl::Status UDPSocket::Bind(const InetAddress &addr) {
     // An ephemeral port was request, find out what the assigned port is
     sockaddr_in address;
     socklen_t address_size = sizeof(address);
-    if (getsockname(fd_.Fd(), reinterpret_cast<sockaddr *>(&address), &address_size) != 0) {
-        return absl::InternalError(
-            absl::StrFormat("Failed to get ephemeral port assignment for %s: %s",
-                addr.ToString().c_str(), strerror(errno)));
+    if (getsockname(fd_.Fd(), reinterpret_cast<sockaddr *>(&address),
+                    &address_size) != 0) {
+      return absl::InternalError(
+          absl::StrFormat("Failed to get ephemeral port assignment for %s: %s",
+                          addr.ToString().c_str(), strerror(errno)));
     }
     bound_address_.SetPort(ntohs(address.sin_port));
   }
@@ -585,36 +720,28 @@ absl::Status UDPSocket::Bind(const InetAddress &addr) {
 }
 
 absl::Status UDPSocket::JoinMulticastGroup(const InetAddress &addr) {
-    ip_mreqn membership_request {
-        .imr_multiaddr = addr.GetAddress().sin_addr,
-        .imr_address = {INADDR_ANY},
-        .imr_ifindex = 0
-    };
-    int setsockopt_ret = ::setsockopt(fd_.Fd(),
-                                     IPPROTO_IP,
-                                     IP_ADD_MEMBERSHIP,
-                                     &membership_request,
-                                     sizeof(membership_request));
-    if (setsockopt_ret != 0) {
-        fd_.Reset();
-        return absl::InternalError(
-            absl::StrFormat("Failed to join multicast group %s: %s",
-                           addr.ToString().c_str(), strerror(errno)));
-    }
-    return absl::OkStatus();
+  ip_mreqn membership_request{.imr_multiaddr = addr.GetAddress().sin_addr,
+                              .imr_address = {INADDR_ANY},
+                              .imr_ifindex = 0};
+  int setsockopt_ret =
+      ::setsockopt(fd_.Fd(), IPPROTO_IP, IP_ADD_MEMBERSHIP, &membership_request,
+                   sizeof(membership_request));
+  if (setsockopt_ret != 0) {
+    fd_.Reset();
+    return absl::InternalError(
+        absl::StrFormat("Failed to join multicast group %s: %s",
+                        addr.ToString().c_str(), strerror(errno)));
+  }
+  return absl::OkStatus();
 }
 
 absl::Status UDPSocket::LeaveMulticastGroup(const InetAddress &addr) {
-  ip_mreqn membership_request {
-    .imr_multiaddr = addr.GetAddress().sin_addr,
-    .imr_address = { INADDR_ANY },
-    .imr_ifindex = 0
-  };
-  int setsockopt_ret = ::setsockopt(fd_.Fd(),
-                                    IPPROTO_IP,
-                                    IP_DROP_MEMBERSHIP,
-                                    &membership_request,
-                                    sizeof(membership_request));
+  ip_mreqn membership_request{.imr_multiaddr = addr.GetAddress().sin_addr,
+                              .imr_address = {INADDR_ANY},
+                              .imr_ifindex = 0};
+  int setsockopt_ret =
+      ::setsockopt(fd_.Fd(), IPPROTO_IP, IP_DROP_MEMBERSHIP,
+                   &membership_request, sizeof(membership_request));
   if (setsockopt_ret != 0) {
     fd_.Reset();
     return absl::InternalError(
@@ -636,9 +763,10 @@ absl::Status UDPSocket::SetBroadcast() {
 
 absl::Status UDPSocket::SetMulticastLoop() {
   constexpr int enable = 1;
-  if (setsockopt(fd_.Fd(), IPPROTO_IP, IP_MULTICAST_LOOP, &enable, sizeof(enable)) != 0) {
-      return absl::InternalError(absl::StrFormat(
-          "Unable to set multicast loop on UDP socket: %s", strerror(errno)));
+  if (setsockopt(fd_.Fd(), IPPROTO_IP, IP_MULTICAST_LOOP, &enable,
+                 sizeof(enable)) != 0) {
+    return absl::InternalError(absl::StrFormat(
+        "Unable to set multicast loop on UDP socket: %s", strerror(errno)));
   }
   return absl::OkStatus();
 }
@@ -690,4 +818,110 @@ absl::StatusOr<ssize_t> UDPSocket::ReceiveFrom(InetAddress &sender,
   sender = {sender_addr};
   return n;
 }
+
+// Virtual (vsock) socket
+VirtualStreamSocket::VirtualStreamSocket()
+    : Socket(socket(AF_VSOCK, SOCK_STREAM, 0)) {}
+
+absl::Status VirtualStreamSocket::Bind(const VirtualAddress &addr,
+                                       bool listen) {
+  bool binding_to_zero = addr.Port() == 0;
+  int bind_err =
+      ::bind(fd_.Fd(), reinterpret_cast<const sockaddr *>(&addr.GetAddress()),
+             addr.GetLength());
+  if (bind_err == -1) {
+    fd_.Reset();
+    return absl::InternalError(
+        absl::StrFormat("Failed to bind TCP socket to %s: %s",
+                        addr.ToString().c_str(), strerror(errno)));
+  }
+  bound_address_ = addr;
+  if (binding_to_zero) {
+    struct sockaddr_vm bound;
+    socklen_t len = sizeof(bound);
+    int name_err = getsockname(
+        fd_.Fd(), reinterpret_cast<struct sockaddr *>(&bound), &len);
+    if (name_err == -1) {
+      return absl::InternalError(
+          absl::StrFormat("Failed to obtain bound address for %s: %s",
+                          addr.ToString().c_str(), strerror(errno)));
+    }
+    bound_address_.SetPort(bound.svm_port);
+  }
+  if (listen) {
+    ::listen(fd_.Fd(), 10);
+  }
+  return absl::OkStatus();
+}
+
+absl::StatusOr<VirtualStreamSocket>
+VirtualStreamSocket::Accept(co::Coroutine *c) const {
+  if (!fd_.Valid()) {
+    return absl::InternalError("Socket is not valid");
+  }
+  if (c != nullptr) {
+    c->Wait(fd_.Fd(), POLLIN);
+  }
+  struct sockaddr_vm sender;
+  socklen_t sock_len = sizeof(sender);
+  int new_fd = ::accept(fd_.Fd(), reinterpret_cast<struct sockaddr *>(&sender),
+                        &sock_len);
+  auto new_socket = VirtualStreamSocket(new_fd, /*connected=*/true);
+  struct sockaddr_vm bound;
+  socklen_t len = sizeof(bound);
+  int e =
+      getsockname(new_fd, reinterpret_cast<struct sockaddr *>(&bound), &len);
+  if (e == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Failed to obtain bound address for accepted socket: %s",
+        strerror(errno)));
+  }
+  new_socket.bound_address_.SetAddress(bound);
+  return new_socket;
+}
+
+absl::Status VirtualStreamSocket::Connect(const VirtualAddress &addr) {
+  if (!fd_.Valid()) {
+    return absl::InternalError("Socket is not valid");
+  }
+  if (!addr.Valid()) {
+    return absl::InternalError("Bad VirtualAddress");
+  }
+  int e = ::connect(fd_.Fd(),
+                    reinterpret_cast<const sockaddr *>(&addr.GetAddress()),
+                    addr.GetLength());
+  if (e == -1) {
+    return absl::InternalError(
+        absl::StrFormat("Failed to connect virtual socket to %s: %s",
+                        addr.ToString().c_str(), strerror(errno)));
+  }
+  connected_ = true;
+  return absl::OkStatus();
+}
+
+absl::StatusOr<VirtualAddress>
+VirtualStreamSocket::LocalAddress(uint32_t port) const {
+  int32_t cid;
+  int e = ioctl(fd_.Fd(), IOCTL_VM_SOCKETS_GET_LOCAL_CID, &cid);
+  if (e == -1) {
+    return absl::InternalError("Failed to get local CID");
+  }
+  return VirtualAddress(cid, port);
+}
+
+absl::StatusOr<VirtualAddress> VirtualStreamSocket::GetPeerName() const {
+  if (!fd_.Valid()) {
+    return absl::InternalError("Socket is not valid");
+  }
+  struct sockaddr_vm peer;
+  socklen_t len = sizeof(peer);
+  int e =
+      getpeername(fd_.Fd(), reinterpret_cast<struct sockaddr *>(&peer), &len);
+  if (e == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Failed to obtain peer address for socket: %s", strerror(errno)));
+  }
+  return VirtualAddress(peer);
+}
+
 } // namespace toolbelt
