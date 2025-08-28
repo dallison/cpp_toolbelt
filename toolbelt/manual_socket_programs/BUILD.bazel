@@ -1,0 +1,31 @@
+cc_binary(
+    name = "tcp_sender",
+    srcs = ["tcp_sender.cc"],
+    deps = [
+        "//toolbelt",
+    ],
+)
+
+cc_binary(
+    name = "tcp_receiver",
+    srcs = ["tcp_receiver.cc"],
+    deps = [
+        "//toolbelt",
+    ],
+)
+
+cc_binary(
+    name = "network_sender",
+    srcs = ["network_sender.cc"],
+    deps = [
+        "//toolbelt",
+    ],
+)
+
+cc_binary(
+    name = "network_receiver",
+    srcs = ["network_receiver.cc"],
+    deps = [
+        "//toolbelt",
+    ],
+)
