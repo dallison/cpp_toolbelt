@@ -40,7 +40,7 @@ absl::StatusOr<ssize_t> FileDescriptor::Read(void *buffer, size_t length,
         }
         // If we are nonblocking yield the coroutine now.  When we
         // are resumed we can write to the socket again.
-        if (!data_->non_blocking_) {
+        if (!data_->nonblocking) {
           int fd = c->Wait(Fd(), POLLIN);
           if (fd != Fd()) {
             return absl::InternalError(absl::StrFormat(
@@ -83,7 +83,7 @@ absl::StatusOr<ssize_t> FileDescriptor::Write(const void *buffer, size_t length,
         }
         // If we are nonblocking yield the coroutine now.  When we
         // are resumed we can write to the socket again.
-        if (!data_->non_blocking_) {
+        if (!data_->nonblocking) {
           int fd = c->Wait(Fd(), POLLOUT);
           if (fd != Fd()) {
             return absl::InternalError(absl::StrFormat(
