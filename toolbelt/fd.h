@@ -148,6 +148,10 @@ public:
     }
   }
 
+  bool IsNonBlocking() const {
+    return data_ != nullptr && data_->nonblocking;
+  }
+
   absl::Status SetNonBlocking() {
     if (!Valid()) {
       return absl::InternalError("Cannot set nonblocking on an invalid fd");
@@ -162,7 +166,7 @@ public:
       return absl::InternalError(absl::StrFormat(
           "Failed to set nonblocking mode on fd: %s", strerror(errno)));
     }
-    data_->non_blocking_ = true;
+    data_->nonblocking = true;
     return absl::OkStatus();
   }
 
@@ -199,7 +203,7 @@ private:
       }
     }
     int fd = -1; // OS file descriptor.
-    bool non_blocking_ = false;
+    bool nonblocking = false;
   };
 
   // The actual shared data.  If nullptr the FileDescriptor is invalid.
