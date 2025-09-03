@@ -5,12 +5,14 @@
 #include "sockets.h"
 
 #include <arpa/inet.h>
+#include <cstring>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -329,12 +331,22 @@ static struct sockaddr_un BuildUnixSocketName(const std::string &pathname) {
   // On Linux we can create it in the abstract namespace which doesn't
   // consume a pathname.
   addr.sun_path[0] = '\0';
-  memcpy(addr.sun_path + 1, pathname.c_str(), pathname.size());
+  memcpy(addr.sun_path + 1, pathname.c_str(), std::min(pathname.size(), sizeof(addr.sun_path) - 2));
 #else
   // Portable uses the file system so it must be a valid path name.
-  memcpy(addr.sun_path, pathname.c_str(), pathname.size());
+  memcpy(addr.sun_path, pathname.c_str(), std::min(pathname.size(), sizeof(addr.sun_path) - 1));
 #endif
   return addr;
+}
+
+static std::string ExtractUnixSocketNameString(const struct sockaddr_un &addr, socklen_t addrlen) {
+#if defined(__linux__)
+  auto addr_str_len = strnlen(addr.sun_path + 1, addrlen - offsetof(sockaddr_un, sun_path) - 1);
+  return std::string(addr.sun_path + 1, addr.sun_path + addr_str_len + 1);
+#else
+  auto addr_str_len = strnlen(addr.sun_path, addrlen - offsetof(sockaddr_un, sun_path));
+  return std::string(addr.sun_path, addr.sun_path + addr_str_len);
+#endif
 }
 
 absl::Status UnixSocket::Bind(const std::string &pathname, bool listen) {
@@ -381,12 +393,7 @@ absl::StatusOr<UnixSocket> UnixSocket::Accept(co::Coroutine *c) const {
         "Failed to obtain bound address for accepted socket: %s",
         strerror(errno)));
   }
-#ifdef __linux__
-  new_socket.bound_address_ = bound.sun_path + 1;
-#else
-  new_socket.bound_address_ = bound.sun_path;
-
-#endif
+  new_socket.bound_address_ = ExtractUnixSocketNameString(bound, len);
   return new_socket;
 }
 
@@ -531,11 +538,7 @@ absl::StatusOr<std::string> UnixSocket::GetPeerName() const {
     return absl::InternalError(absl::StrFormat(
         "Failed to obtain peer address for socket: %s", strerror(errno)));
   }
-#if defined(__linux__)
-  return std::string(peer.sun_path + 1);
-#else
-  return std::string(peer.sun_path);
-#endif
+  return ExtractUnixSocketNameString(peer, len);
 }
 
 absl::StatusOr<std::string> UnixSocket::LocalAddress() const {
@@ -550,11 +553,7 @@ absl::StatusOr<std::string> UnixSocket::LocalAddress() const {
     return absl::InternalError(absl::StrFormat(
         "Failed to obtain local address for socket: %s", strerror(errno)));
   }
-#if defined(__linux__)
-  return std::string(local.sun_path + 1);
-#else
-  return std::string(local.sun_path);
-#endif
+  return ExtractUnixSocketNameString(local, len);
 }
 
 // Network socket.

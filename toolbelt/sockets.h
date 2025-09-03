@@ -291,7 +291,7 @@ template <typename H> inline H AbslHashValue(H h, const SocketAddress &a) {
 // This is a general socket initialized with a file descriptor.  Subclasses
 // implement the different socket types.
 class Socket {
-public:
+protected:
   Socket() = default;
   explicit Socket(int fd, bool connected = false)
       : fd_(fd), connected_(connected) {}
@@ -307,6 +307,7 @@ public:
     return *this;
   }
   ~Socket() {}
+public:
 
   void Close() {
     fd_.Close();
@@ -363,12 +364,6 @@ class UnixSocket : public Socket {
 public:
   UnixSocket();
   explicit UnixSocket(int fd, bool connected = false) : Socket(fd, connected) {}
-  UnixSocket(UnixSocket &&s) : Socket(std::move(s)) {}
-  UnixSocket(const UnixSocket &s) = default;
-  UnixSocket &operator=(const UnixSocket &s) = default;
-  UnixSocket &operator=(UnixSocket &&s) = default;
-
-  ~UnixSocket() = default;
 
   absl::Status Bind(const std::string &pathname, bool listen);
   absl::Status Connect(const std::string &pathname);
@@ -391,16 +386,11 @@ private:
 // A socket for communication across the network.  This is the base
 // class for UDP and TCP sockets.
 class NetworkSocket : public Socket {
-public:
+protected:
   NetworkSocket() = default;
   explicit NetworkSocket(int fd, bool connected = false)
       : Socket(fd, connected) {}
-  NetworkSocket(const NetworkSocket &s)
-      : Socket(s), bound_address_(s.bound_address_) {}
-  NetworkSocket(NetworkSocket &&s)
-      : Socket(std::move(s)), bound_address_(std::move(s.bound_address_)) {}
-  ~NetworkSocket() = default;
-  NetworkSocket &operator=(const NetworkSocket &s) = default;
+public:
 
   absl::Status Connect(const InetAddress &addr);
 
@@ -419,10 +409,6 @@ public:
   UDPSocket();
   explicit UDPSocket(int fd, bool connected = false)
       : NetworkSocket(fd, connected) {}
-  UDPSocket(const UDPSocket &) = default;
-  UDPSocket(UDPSocket &&s) : NetworkSocket(std::move(s)) {}
-  ~UDPSocket() = default;
-  UDPSocket &operator=(const UDPSocket &s) = default;
 
   absl::Status Bind(const InetAddress &addr);
 
@@ -448,10 +434,6 @@ public:
   TCPSocket();
   explicit TCPSocket(int fd, bool connected = false)
       : NetworkSocket(fd, connected) {}
-  TCPSocket(const TCPSocket &) = default;
-  TCPSocket(TCPSocket &&s) : NetworkSocket(std::move(s)) {}
-  ~TCPSocket() = default;
-  TCPSocket &operator=(const TCPSocket &s) = default;
 
   absl::Status Bind(const InetAddress &addr, bool listen);
 
@@ -467,10 +449,7 @@ public:
   VirtualStreamSocket();
   explicit VirtualStreamSocket(int fd, bool connected = false)
       : Socket(fd, connected) {}
-  VirtualStreamSocket(const VirtualStreamSocket &) = default;
-  VirtualStreamSocket(VirtualStreamSocket &&s) : Socket(std::move(s)) {}
-  ~VirtualStreamSocket() = default;
-  VirtualStreamSocket &operator=(const VirtualStreamSocket &s) = default;
+
   absl::Status Connect(const VirtualAddress &addr);
 
   absl::Status Bind(const VirtualAddress &addr, bool listen);
@@ -496,6 +475,7 @@ public:
   StreamSocket(StreamSocket &&s) = default;
   ~StreamSocket() = default;
   StreamSocket &operator=(const StreamSocket &s) = default;
+  StreamSocket &operator=(StreamSocket &&s) = default;
 
   // Binders for TCP, Virtual, and Unix sockets.
   //
