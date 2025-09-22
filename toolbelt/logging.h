@@ -78,85 +78,85 @@ public:
   virtual void Log(LogLevel level, uint64_t timestamp,
                    const std::string &source, std::string text);
 
-  inline void verboseDebug(const std::string& str) {
-      log(LogLevel::VERBOSE_DEBUG, str);
+  inline void VerboseDebug(const std::string& str) {
+      Log(LogLevel::kVERBOSE_DEBUG, str);
   }
-  inline void debug(const std::string& str) {
-      log(LogLevel::DBG, str);
+  inline void Debug(const std::string& str) {
+      Log(LogLevel::kDBG, str);
   }
-  inline void info(const std::string& str) {
-      log(LogLevel::INFO, str);
+  inline void Info(const std::string& str) {
+      Log(LogLevel::kINFO, str);
   }
-  inline void warn(const std::string& str) {
-      log(LogLevel::WARNING, str);
+  inline void Warn(const std::string& str) {
+      Log(LogLevel::kWARNING, str);
   }
-  inline void error(const std::string& str) {
-      log(LogLevel::ERROR, str);
+  inline void Error(const std::string& str) {
+      Log(LogLevel::kERROR, str);
   }
-  inline void fatal(const std::string& str) {
-      log(LogLevel::FATAL, str);
+  inline void Fatal(const std::string& str) {
+      Log(LogLevel::kFATAL, str);
   }
-  inline void verboseDebug(std::string&& str) {
-      log(LogLevel::VERBOSE_DEBUG, std::move(str));
+  inline void VerboseDebug(std::string&& str) {
+      Log(LogLevel::kVERBOSE_DEBUG, std::move(str));
   }
-  inline void debug(std::string&& str) {
-      log(LogLevel::DBG, std::move(str));
+  inline void Debug(std::string&& str) {
+      Log(LogLevel::kDBG, std::move(str));
   }
-  inline void info(std::string&& str) {
-      log(LogLevel::INFO, std::move(str));
+  inline void Info(std::string&& str) {
+      Log(LogLevel::kINFO, std::move(str));
   }
-  inline void warn(std::string&& str) {
-      log(LogLevel::WARNING, std::move(str));
+  inline void Warn(std::string&& str) {
+      Log(LogLevel::kWARNING, std::move(str));
   }
-  inline void error(std::string&& str) {
-      log(LogLevel::ERROR, std::move(str));
+  inline void Error(std::string&& str) {
+      Log(LogLevel::kERROR, std::move(str));
   }
-  inline void fatal(std::string&& str) {
-      log(LogLevel::FATAL, std::move(str));
+  inline void Fatal(std::string&& str) {
+      Log(LogLevel::kFATAL, std::move(str));
   }
 
   template<typename... Ts>
-      void verboseDebug(const char* fmt, Ts&&... args) {
-          if (!_enabled || LogLevel::VERBOSE_DEBUG < _minLevel) {
+      void VerboseDebug(const char* fmt, Ts&&... args) {
+          if (!_enabled || LogLevel::kVERBOSE_DEBUG < min_level_) {
               return;
           }
-          log(LogLevel::VERBOSE_DEBUG, fmt::format(fmt, std::forward<Ts>(args)...));
+          Log(LogLevel::kVERBOSE_DEBUG, fmt::format(fmt, std::forward<Ts>(args)...));
       }
 
   template<typename... Ts>
-      void debug(const char* fmt, Ts&&... args) {
-          if (!_enabled || LogLevel::DBG < _minLevel) {
+      void Debug(const char* fmt, Ts&&... args) {
+          if (!_enabled || LogLevel::kDBG < min_level_) {
               return;
           }
-          log(LogLevel::DBG, fmt::format(fmt, std::forward<Ts>(args)...));
+          Log(LogLevel::DBG, fmt::format(fmt, std::forward<Ts>(args)...));
       }
   template<typename... Ts>
-      void info(const char* fmt, Ts&&... args) {
-          if (!_enabled || LogLevel::INFO < _minLevel) {
+      void Info(const char* fmt, Ts&&... args) {
+          if (!_enabled || LogLevel::kINFO < min_level_) {
               return;
           }
-          log(LogLevel::INFO, fmt::format(fmt, std::forward<Ts>(args)...));
+          Log(LogLevel::kINFO, fmt::format(fmt, std::forward<Ts>(args)...));
       }
   template<typename... Ts>
-      void warn(const char* fmt, Ts&&... args) {
-          if (!_enabled || LogLevel::WARNING < _minLevel) {
+      void Warn(const char* fmt, Ts&&... args) {
+          if (!_enabled || LogLevel::kWARNING < min_level_) {
               return;
           }
-          log(LogLevel::WARNING, fmt::format(fmt, std::forward<Ts>(args)...));
+          Log(LogLevel::kWARNING, fmt::format(fmt, std::forward<Ts>(args)...));
       }
   template<typename... Ts>
-      void error(const char* fmt, Ts&&... args) {
-          if (!_enabled || LogLevel::ERROR < _minLevel) {
+      void Error(const char* fmt, Ts&&... args) {
+          if (!_enabled || LogLevel::kERROR < min_level_) {
               return;
           }
-          log(LogLevel::ERROR, fmt::format(fmt, std::forward<Ts>(args)...));
+          Log(LogLevel::kERROR, fmt::format(fmt, std::forward<Ts>(args)...));
       }
   template<typename... Ts>
-      void fatal(const char* fmt, Ts&&... args) {
-          if (!_enabled || LogLevel::FATAL < _minLevel) {
+      void Fatal(const char* fmt, Ts&&... args) {
+          if (!_enabled || LogLevel::kFATAL < min_level_) {
               return;
           }
-          log(LogLevel::FATAL, fmt::format(fmt, std::forward<Ts>(args)...));
+          Log(LogLevel::kFATAL, fmt::format(fmt, std::forward<Ts>(args)...));
       }
   void SetTheme(LogTheme theme);
 
