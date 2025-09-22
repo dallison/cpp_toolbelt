@@ -78,6 +78,86 @@ public:
   virtual void Log(LogLevel level, uint64_t timestamp,
                    const std::string &source, std::string text);
 
+  inline void verboseDebug(const std::string& str) {
+      log(LogLevel::VERBOSE_DEBUG, str);
+  }
+  inline void debug(const std::string& str) {
+      log(LogLevel::DBG, str);
+  }
+  inline void info(const std::string& str) {
+      log(LogLevel::INFO, str);
+  }
+  inline void warn(const std::string& str) {
+      log(LogLevel::WARNING, str);
+  }
+  inline void error(const std::string& str) {
+      log(LogLevel::ERROR, str);
+  }
+  inline void fatal(const std::string& str) {
+      log(LogLevel::FATAL, str);
+  }
+  inline void verboseDebug(std::string&& str) {
+      log(LogLevel::VERBOSE_DEBUG, std::move(str));
+  }
+  inline void debug(std::string&& str) {
+      log(LogLevel::DBG, std::move(str));
+  }
+  inline void info(std::string&& str) {
+      log(LogLevel::INFO, std::move(str));
+  }
+  inline void warn(std::string&& str) {
+      log(LogLevel::WARNING, std::move(str));
+  }
+  inline void error(std::string&& str) {
+      log(LogLevel::ERROR, std::move(str));
+  }
+  inline void fatal(std::string&& str) {
+      log(LogLevel::FATAL, std::move(str));
+  }
+
+  template<typename... Ts>
+      void verboseDebug(const char* fmt, Ts&&... args) {
+          if (!_enabled || LogLevel::VERBOSE_DEBUG < _minLevel) {
+              return;
+          }
+          log(LogLevel::VERBOSE_DEBUG, fmt::format(fmt, std::forward<Ts>(args)...));
+      }
+
+  template<typename... Ts>
+      void debug(const char* fmt, Ts&&... args) {
+          if (!_enabled || LogLevel::DBG < _minLevel) {
+              return;
+          }
+          log(LogLevel::DBG, fmt::format(fmt, std::forward<Ts>(args)...));
+      }
+  template<typename... Ts>
+      void info(const char* fmt, Ts&&... args) {
+          if (!_enabled || LogLevel::INFO < _minLevel) {
+              return;
+          }
+          log(LogLevel::INFO, fmt::format(fmt, std::forward<Ts>(args)...));
+      }
+  template<typename... Ts>
+      void warn(const char* fmt, Ts&&... args) {
+          if (!_enabled || LogLevel::WARNING < _minLevel) {
+              return;
+          }
+          log(LogLevel::WARNING, fmt::format(fmt, std::forward<Ts>(args)...));
+      }
+  template<typename... Ts>
+      void error(const char* fmt, Ts&&... args) {
+          if (!_enabled || LogLevel::ERROR < _minLevel) {
+              return;
+          }
+          log(LogLevel::ERROR, fmt::format(fmt, std::forward<Ts>(args)...));
+      }
+  template<typename... Ts>
+      void fatal(const char* fmt, Ts&&... args) {
+          if (!_enabled || LogLevel::FATAL < _minLevel) {
+              return;
+          }
+          log(LogLevel::FATAL, fmt::format(fmt, std::forward<Ts>(args)...));
+      }
   void SetTheme(LogTheme theme);
 
   // All logged messages with a level below the min level will be
