@@ -47,6 +47,10 @@ struct sockaddr_vm {
   uint32_t svm_reserved2;
 };
 #define VMADDR_CID_ANY (~0U)
+#define VMADDR_CID_HOST 1
+#define VMADDR_CID_HYPERVISOR 2
+#define VMADDR_CID_LOCAL 3
+#define AF_VSOCK 40
 #endif
 
 #include <unistd.h>
