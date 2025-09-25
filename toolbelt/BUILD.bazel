@@ -51,6 +51,18 @@ cc_test(
 )
 
 cc_test(
+    name = "logging_test",
+    size = "small",
+    srcs = ["logging_test.cc"],
+    deps = [
+        ":toolbelt",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "table_test",
     size = "small",
     srcs = ["table_test.cc"],
