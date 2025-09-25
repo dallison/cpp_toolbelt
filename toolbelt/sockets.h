@@ -46,6 +46,7 @@ struct sockaddr_vm {
   uint32_t svm_cid;
   uint32_t svm_reserved2;
 };
+#define VMADDR_CID_ANY (~0U)
 #endif
 
 #include <unistd.h>
