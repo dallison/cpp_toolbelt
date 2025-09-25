@@ -17,9 +17,40 @@
 #include <sys/un.h>
 
 #if defined(__linux__)
+
+#if __has_include(<linux/vm_sockets.h>)
 #include <linux/vm_sockets.h>
+#define HAS_VM_SOCKETS 1
 #else
+#define HAS_VM_SOCKETS 0
+#endif
+
+#else
+#if __has_include(<sys/vsock.h>)
 #include <sys/vsock.h>
+#define HAS_VM_SOCKETS 1
+#else
+#define HAS_VM_SOCKETS 0
+#endif
+#endif
+
+// Older systems may not have the header file.
+#if !HAS_VM_SOCKETS
+struct sockaddr_vm {
+#if defined(_APPLE__)
+  uint8_t svm_len;      /* total length of sockaddr */
+#endif
+  sa_family_t svm_family; /* AF_VSOCK */
+  uint32_t svm_reserved1;
+  uint32_t svm_port;
+  uint32_t svm_cid;
+  uint32_t svm_reserved2;
+};
+#define VMADDR_CID_ANY (~0U)
+#define VMADDR_CID_HOST 1
+#define VMADDR_CID_HYPERVISOR 2
+#define VMADDR_CID_LOCAL 3
+#define AF_VSOCK 40
 #endif
 
 #include <unistd.h>
