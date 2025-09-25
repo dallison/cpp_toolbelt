@@ -331,20 +331,25 @@ static struct sockaddr_un BuildUnixSocketName(const std::string &pathname) {
   // On Linux we can create it in the abstract namespace which doesn't
   // consume a pathname.
   addr.sun_path[0] = '\0';
-  memcpy(addr.sun_path + 1, pathname.c_str(), std::min(pathname.size(), sizeof(addr.sun_path) - 2));
+  memcpy(addr.sun_path + 1, pathname.c_str(),
+         std::min(pathname.size(), sizeof(addr.sun_path) - 2));
 #else
   // Portable uses the file system so it must be a valid path name.
-  memcpy(addr.sun_path, pathname.c_str(), std::min(pathname.size(), sizeof(addr.sun_path) - 1));
+  memcpy(addr.sun_path, pathname.c_str(),
+         std::min(pathname.size(), sizeof(addr.sun_path) - 1));
 #endif
   return addr;
 }
 
-static std::string ExtractUnixSocketNameString(const struct sockaddr_un &addr, socklen_t addrlen) {
+static std::string ExtractUnixSocketNameString(const struct sockaddr_un &addr,
+                                               socklen_t addrlen) {
 #if defined(__linux__)
-  auto addr_str_len = strnlen(addr.sun_path + 1, addrlen - offsetof(sockaddr_un, sun_path) - 1);
+  auto addr_str_len =
+      strnlen(addr.sun_path + 1, addrlen - offsetof(sockaddr_un, sun_path) - 1);
   return std::string(addr.sun_path + 1, addr.sun_path + addr_str_len + 1);
 #else
-  auto addr_str_len = strnlen(addr.sun_path, addrlen - offsetof(sockaddr_un, sun_path));
+  auto addr_str_len =
+      strnlen(addr.sun_path, addrlen - offsetof(sockaddr_un, sun_path));
   return std::string(addr.sun_path, addr.sun_path + addr_str_len);
 #endif
 }
@@ -900,11 +905,16 @@ absl::Status VirtualStreamSocket::Connect(const VirtualAddress &addr) {
 
 absl::StatusOr<VirtualAddress>
 VirtualStreamSocket::LocalAddress(uint32_t port) const {
+#if defined(IOCTL_VM_SOCKETS_GET_LOCAL_CID)
   int32_t cid;
   int e = ioctl(fd_.Fd(), IOCTL_VM_SOCKETS_GET_LOCAL_CID, &cid);
   if (e == -1) {
     return absl::InternalError("Failed to get local CID");
   }
+#else
+  // If we cannot get the local CID, return ANY.
+  int32_t cid = VMADDR_CID_ANY;
+#endif
   return VirtualAddress(cid, port);
 }
 
