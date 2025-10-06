@@ -16,7 +16,7 @@ void CloseAllFds(std::function<bool(int)> predicate) {
 }
 
 absl::StatusOr<ssize_t> FileDescriptor::Read(void *buffer, size_t length,
-                                             co::Coroutine *c) {
+                                             const co::Coroutine *c) {
   char *buf = reinterpret_cast<char *>(buffer);
   size_t total = 0;
   while (total < length) {
@@ -58,7 +58,7 @@ absl::StatusOr<ssize_t> FileDescriptor::Read(void *buffer, size_t length,
 }
 
 absl::StatusOr<ssize_t> FileDescriptor::Write(const void *buffer, size_t length,
-                                              co::Coroutine *c) {
+                                              const co::Coroutine *c) {
   const char *buf = reinterpret_cast<const char *>(buffer);
 
   size_t total = 0;
