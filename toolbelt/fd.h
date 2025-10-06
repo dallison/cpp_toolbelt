@@ -187,9 +187,9 @@ public:
     return absl::OkStatus();
   }
 
-  absl::StatusOr<ssize_t> Read(void* buffer, size_t length, co::Coroutine* c = nullptr);
+  absl::StatusOr<ssize_t> Read(void* buffer, size_t length, const co::Coroutine* c = nullptr);
   absl::StatusOr<ssize_t> Write(const void* buffer, size_t length,
-                                      co::Coroutine* c = nullptr);
+                                      const co::Coroutine* c = nullptr);
 private:
   // Reference counted OS fd, shared among all FileDescriptors with the
   // same OS fd, provided you don't create two FileDescriptors with the
