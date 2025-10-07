@@ -283,7 +283,6 @@ TEST(SocketsTest, BigTCPSocketBlocking) {
     Receiver.join();
 }
 
-#if 0
 TEST(SocketsTest, TCPSocketInterrupt) {
     // TODO(dave.allison): is there a way to pick an unused port?
     toolbelt::InetAddress addr("127.0.0.1", 6502);
@@ -301,7 +300,7 @@ TEST(SocketsTest, TCPSocketInterrupt) {
                 absl::StatusOr<toolbelt::TCPSocket> s = listener.Accept(c);
                 ASSERT_FALSE(s.ok());
             },
-            {.interrrupt_fd = scheduler.GetInterruptFd()});
+            co::CoroutineOptions{.name = "foo", .interrupt_fd = scheduler.GetInterruptFd()});
 
     co::Coroutine interrupt(scheduler, [](co::Coroutine* c) {
         c->Yield();
@@ -310,7 +309,6 @@ TEST(SocketsTest, TCPSocketInterrupt) {
 
     scheduler.Run();
 }
-#endif
 
 TEST(SocketsTest, TCPSocket2) {
     // TODO(dave.allison): is there a way to pick an unused port?
