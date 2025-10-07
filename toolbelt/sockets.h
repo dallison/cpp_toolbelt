@@ -110,7 +110,7 @@ public:
   static InetAddress AnyAddress(int port);
 
 private:
-  struct sockaddr_in addr_; // In network byte order.
+  struct sockaddr_in addr_ = {}; // In network byte order.
   bool valid_ = false;
 };
 
