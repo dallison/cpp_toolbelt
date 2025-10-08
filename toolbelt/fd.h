@@ -18,7 +18,7 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include "coroutine.h"
+#include "co/coroutine.h"
 
 namespace toolbelt {
 
