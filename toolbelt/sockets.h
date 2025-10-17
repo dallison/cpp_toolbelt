@@ -53,6 +53,10 @@ struct sockaddr_vm {
 #define AF_VSOCK 40
 #endif
 
+#if !defined(VMADDR_CID_LOCAL)
+#define VMADDR_CID_LOCAL 3
+#endif
+
 #include <unistd.h>
 #include <variant>
 #include <vector>
