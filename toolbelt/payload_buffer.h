@@ -144,7 +144,7 @@ struct PayloadBuffer {
   PayloadBuffer(uint32_t size, bool bitmap_allocator = true)
       : magic(kFixedBufferMagic | (bitmap_allocator ? kBitMapFlag : 0)),
         message(0), hwm(0), full_size(size), metadata(0) {
-    for (int i = 0; i < kNumBitmapRuns; i++) {
+    for (size_t i = 0; i < kNumBitmapRuns; i++) {
       bitmaps[i] = 0;
     }
     InitFreeList();
@@ -163,7 +163,7 @@ struct PayloadBuffer {
   PayloadBuffer(uint32_t initial_size, Resizer r, bool bitmap_allocator = true)
       : magic(kMovableBufferMagic | (bitmap_allocator ? kBitMapFlag : 0)),
         message(0), hwm(0), full_size(initial_size), metadata(0) {
-    for (int i = 0; i < kNumBitmapRuns; i++) {
+    for (size_t i = 0; i < kNumBitmapRuns; i++) {
       bitmaps[i] = 0;
     }
     InitFreeList();
