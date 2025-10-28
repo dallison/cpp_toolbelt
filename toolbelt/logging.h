@@ -10,7 +10,6 @@
 #include <stdarg.h>
 #include <string>
 #include <sys/ioctl.h>
-#include <termios.h>
 #include <unistd.h>
 #include <cstdint>
 
