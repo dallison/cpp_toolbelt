@@ -1,6 +1,7 @@
 #include "toolbelt/clock.h"
 #include "toolbelt/hexdump.h"
 #include "toolbelt/payload_buffer.h"
+#include <cstddef>
 #include <gtest/gtest.h>
 #include <sstream>
 
@@ -152,13 +153,13 @@ TEST(BufferTest, SmallBlockAllocFree) {
     blocks.push_back(addr);
   }
   // Free every 5th block.
-  for (int i = 0; i < blocks.size(); i++) {
+  for (size_t i = 0; i < blocks.size(); i++) {
     if (i % 5 == 0) {
       pb->Free(blocks[i]);
     }
   }
   // Now allocate every 5th block again.
-  for (int i = 0; i < blocks.size(); i++) {
+  for (size_t i = 0; i < blocks.size(); i++) {
     if (i % 5 == 0) {
       size_t size = sizes[i % sizes.size()];
       void *addr = PayloadBuffer::Allocate(&pb, size);
@@ -314,7 +315,7 @@ TEST(BufferTest, TypicalPerformance) {
         small_blocks.push_back(addr);
       }
       // Free some of the blocks.
-      for (int i = prev_size; i < small_blocks.size(); i++) {
+      for (size_t i = prev_size; i < small_blocks.size(); i++) {
         if (i % 8 == 0) {
           continue;
         }
@@ -341,7 +342,7 @@ TEST(BufferTest, TypicalPerformance) {
         large_blocks.push_back(addr);
       }
       // Free some of the blocks.
-      for (int i = prev_size; i < large_blocks.size(); i++) {
+      for (size_t i = prev_size; i < large_blocks.size(); i++) {
         if (i % 8 == 0) {
           continue;
         }
