@@ -7,6 +7,7 @@
 #include "clock.h"
 #include <cstdio>
 #include <inttypes.h>
+#include <termios.h>
 
 namespace toolbelt {
 
