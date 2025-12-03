@@ -40,7 +40,7 @@ FetchContent_MakeAvailable(abseil)
 FetchContent_Declare(
     co
     GIT_REPOSITORY https://github.com/dallison/co.git
-    GIT_TAG main
+    GIT_TAG cf1252b2f5952d7cba83b67dd69288971c0a2b57
     # Pass architecture settings to co's CMake build
     CMAKE_ARGS
         CMAKE_OSX_ARCHITECTURES="${CMAKE_OSX_ARCHITECTURES}"
