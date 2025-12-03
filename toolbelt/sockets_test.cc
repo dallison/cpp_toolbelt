@@ -207,7 +207,7 @@ TEST(SocketsTest, BigTCPSocketNonblocking) {
         auto buf = b.value();
         ASSERT_EQ(kBufferSize, buf.size());
         for (size_t i = 0; i < kBufferSize; i++) {
-            if (buf[i] != 'a' + ((i + 4) % 26)) {
+            if (size_t(buf[i]) != 'a' + ((i + 4) % 26)) {
                 std::cerr << "Mismatch at " << i << ": " << buf[i] << " != " << 'a' + (i % 26)
                           << "\n";
             }
@@ -255,7 +255,7 @@ TEST(SocketsTest, BigTCPSocketBlocking) {
                 auto buf = b.value();
                 ASSERT_EQ(kBufferSize, buf.size());
                 for (size_t i = 0; i < kBufferSize; i++) {
-                    if (buf[i] != 'a' + ((i + 4) % 26)) {
+                    if (size_t(buf[i]) != 'a' + ((i + 4) % 26)) {
                         std::cerr << "Mismatch at " << i << ": " << buf[i]
                                   << " != " << 'a' + (i % 26) << "\n";
                     }
