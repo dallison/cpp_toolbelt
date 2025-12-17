@@ -12,9 +12,9 @@ bazel_dep(name = "googletest", version = "1.15.2", repo_name = "com_google_googl
 # Coroutines
 http_archive(
     name = "coroutines",
-    sha256 = "7ae2cb4f8f28147899b3c72820fc92eb4e489bbf9d93fa8e38968e0978b59792",
-    strip_prefix = "co-cf1252b2f5952d7cba83b67dd69288971c0a2b57",
-    urls = ["https://github.com/dallison/co/archive/cf1252b2f5952d7cba83b67dd69288971c0a2b57.tar.gz"],
+    sha256 = "44cfc56924e4aa338fbf6c424a8f5db2e6e7d88e27666fd137aeb6cb67c236e1",
+    strip_prefix = "co-26f5da14c994276ab038f7ad512ca37ba32f19dc",
+    urls = ["https://github.com/dallison/co/archive/26f5da14c994276ab038f7ad512ca37ba32f19dc.tar.gz"],
 )
 
 # For local debugging of co coroutine library.
