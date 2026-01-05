@@ -73,7 +73,7 @@ void Table::Print(int width, std::ostream &os) {
   // Print titles.
   for (auto &col : cols_) {
     std::string title = col.title;
-    if (title.size() > col.width) {
+    if (title.size() > static_cast<size_t>(col.width)) {
       title = title.substr(0, col.width - 1);
     }
     os << std::left << std::setw(col.width) << std::setfill(' ') << title;
@@ -83,10 +83,10 @@ void Table::Print(int width, std::ostream &os) {
   os << std::setw(width) << std::setfill('-') << "" << std::endl;
 
   // Print each row.
-  for (size_t i = 0; i < num_rows_; i++) {
+  for (int i = 0; i < num_rows_; i++) {
     for (auto &col : cols_) {
       std::string data = col.cells[i].data;
-      if (data.size() > col.width) {
+      if (data.size() > static_cast<size_t>(col.width)) {
         // Truncate if too wide.
         data = data.substr(0, col.width - 1);
       }
@@ -107,7 +107,7 @@ void Table::Clear() {
 
 void Table::Render(int width) {
   std::vector<size_t> max_widths(cols_.size());
-  for (size_t i = 0; i < num_rows_; i++) {
+  for (int i = 0; i < num_rows_; i++) {
     int col_index = 0;
     for (auto &col : cols_) {
       if (col.cells[i].data.size() > max_widths[col_index]) {
@@ -132,7 +132,7 @@ void Table::Render(int width) {
 }
 
 void Table::Sort() {
-  if (sort_column_ == -1 || sort_column_ >= cols_.size()) {
+  if (sort_column_ == -1ULL || sort_column_ >= cols_.size()) {
     return;
   }
   struct Index {
@@ -140,8 +140,8 @@ void Table::Sort() {
     std::string data;
   };
   std::vector<Index> index(num_rows_);
-  for (size_t i = 0; i < num_rows_; i++) {
-    index[i] = {.row = i, .data = cols_[sort_column_].cells[i].data};
+  for (int i = 0; i < num_rows_; i++) {
+    index[i] = {.row = static_cast<size_t>(i), .data = cols_[sort_column_].cells[i].data};
   }
   std::sort(index.begin(), index.end(), [this](const Index &a, const Index &b) {
     return sorter_(a.data, b.data);

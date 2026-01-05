@@ -6,7 +6,7 @@
 #define __TOOLBELT_SOCKETS_H
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "coroutine.h"
+#include "co/coroutine.h"
 #include "fd.h"
 #include <iostream>
 #include <netinet/in.h>
@@ -51,6 +51,10 @@ struct sockaddr_vm {
 #define VMADDR_CID_HYPERVISOR 2
 #define VMADDR_CID_LOCAL 3
 #define AF_VSOCK 40
+#endif
+
+#if !defined(VMADDR_CID_LOCAL)
+#define VMADDR_CID_LOCAL 3
 #endif
 
 #include <unistd.h>
@@ -110,7 +114,7 @@ public:
   static InetAddress AnyAddress(int port);
 
 private:
-  struct sockaddr_in addr_; // In network byte order.
+  struct sockaddr_in addr_ = {}; // In network byte order.
   bool valid_ = false;
 };
 
@@ -348,17 +352,17 @@ public:
 
   // Send and receive raw buffers.
   absl::StatusOr<ssize_t> Receive(char *buffer, size_t buflen,
-                                  co::Coroutine *c = nullptr);
+                                  const co::Coroutine *c = nullptr);
   absl::StatusOr<ssize_t> Send(const char *buffer, size_t length,
-                               co::Coroutine *c = nullptr);
+                               const co::Coroutine *c = nullptr);
   // Send and receive length-delimited message.  The length is a 4-byte
   // network byte order (big endian) int as the first 4 bytes and
   // contains the length of the message.
   absl::StatusOr<ssize_t> ReceiveMessage(char *buffer, size_t buflen,
-                                         co::Coroutine *c = nullptr);
+                                         const co::Coroutine *c = nullptr);
 
   absl::StatusOr<std::vector<char>>
-  ReceiveVariableLengthMessage(co::Coroutine *c = nullptr);
+  ReceiveVariableLengthMessage(const co::Coroutine *c = nullptr);
 
   // For SendMessage, the buffer pointer must be 4 bytes beyond
   // the actual buffer start, which must be length+4 bytes
@@ -366,7 +370,7 @@ public:
   // at buffer-4.  This is to allow us to do a single send
   // to the socket rather than splitting it into 2.
   absl::StatusOr<ssize_t> SendMessage(char *buffer, size_t length,
-                                      co::Coroutine *c = nullptr);
+                                      const co::Coroutine *c = nullptr);
 
   absl::Status SetNonBlocking() {
     if (absl::Status s = fd_.SetNonBlocking(); !s.ok()) {
@@ -399,12 +403,12 @@ public:
   absl::Status Bind(const std::string &pathname, bool listen);
   absl::Status Connect(const std::string &pathname);
 
-  absl::StatusOr<UnixSocket> Accept(co::Coroutine *c = nullptr) const;
+  absl::StatusOr<UnixSocket> Accept(const co::Coroutine *c = nullptr) const;
 
   absl::Status SendFds(const std::vector<FileDescriptor> &fds,
-                       co::Coroutine *c = nullptr);
+                       const co::Coroutine *c = nullptr);
   absl::Status ReceiveFds(std::vector<FileDescriptor> &fds,
-                          co::Coroutine *c = nullptr);
+                          const co::Coroutine *c = nullptr);
 
   std::string BoundAddress() const { return bound_address_; }
   absl::StatusOr<std::string> GetPeerName() const;
@@ -449,12 +453,12 @@ public:
   // NOTE: Read and Write may or may not work on UDP sockets.  Use SendTo and
   // Receive for datagrams.
   absl::Status SendTo(const InetAddress &addr, const void *buffer,
-                      size_t length, co::Coroutine *c = nullptr);
+                      size_t length, const co::Coroutine *c = nullptr);
   absl::StatusOr<ssize_t> Receive(void *buffer, size_t buflen,
-                                  co::Coroutine *c = nullptr);
+                                  const co::Coroutine *c = nullptr);
   absl::StatusOr<ssize_t> ReceiveFrom(InetAddress &sender, void *buffer,
                                       size_t buflen,
-                                      co::Coroutine *c = nullptr);
+                                      const co::Coroutine *c = nullptr);
   absl::Status SetBroadcast();
   absl::Status SetMulticastLoop();
 };
@@ -468,7 +472,7 @@ public:
 
   absl::Status Bind(const InetAddress &addr, bool listen);
 
-  absl::StatusOr<TCPSocket> Accept(co::Coroutine *c = nullptr) const;
+  absl::StatusOr<TCPSocket> Accept(const co::Coroutine *c = nullptr) const;
 
   absl::StatusOr<InetAddress> LocalAddress(int port) const;
 
@@ -485,7 +489,7 @@ public:
 
   absl::Status Bind(const VirtualAddress &addr, bool listen);
 
-  absl::StatusOr<VirtualStreamSocket> Accept(co::Coroutine *c = nullptr) const;
+  absl::StatusOr<VirtualStreamSocket> Accept(const co::Coroutine *c = nullptr) const;
   absl::StatusOr<VirtualAddress> LocalAddress(uint32_t port) const;
 
   const VirtualAddress &BoundAddress() const { return bound_address_; }
@@ -546,7 +550,7 @@ public:
     return absl::Status(absl::StatusCode::kInternal, "Invalid socket address");
   }
 
-  absl::StatusOr<StreamSocket> Accept(co::Coroutine *c = nullptr) const {
+  absl::StatusOr<StreamSocket> Accept(const co::Coroutine *c = nullptr) const {
     return std::visit(
         EyeOfNewt{
             [&](const TCPSocket &s) mutable -> absl::StatusOr<StreamSocket> {
@@ -612,7 +616,7 @@ public:
 
   // Send and receive raw buffers.
   absl::StatusOr<ssize_t> Receive(char *buffer, size_t buflen,
-                                  co::Coroutine *c = nullptr) {
+                                  const co::Coroutine *c = nullptr) {
     return std::visit(
         EyeOfNewt{[&](TCPSocket &s) { return s.Receive(buffer, buflen, c); },
                   [&](VirtualStreamSocket &s) {
@@ -623,7 +627,7 @@ public:
   }
 
   absl::StatusOr<ssize_t> Send(const char *buffer, size_t length,
-                               co::Coroutine *c = nullptr) {
+                               const co::Coroutine *c = nullptr) {
     return std::visit(
         EyeOfNewt{
             [&](TCPSocket &s) { return s.Send(buffer, length, c); },
@@ -636,7 +640,7 @@ public:
   // network byte order (big endian) int as the first 4 bytes and
   // contains the length of the message.
   absl::StatusOr<ssize_t> ReceiveMessage(char *buffer, size_t buflen,
-                                         co::Coroutine *c = nullptr) {
+                                         const co::Coroutine *c = nullptr) {
     return std::visit(
         EyeOfNewt{
             [&](TCPSocket &s) { return s.ReceiveMessage(buffer, buflen, c); },
@@ -648,7 +652,7 @@ public:
   }
 
   absl::StatusOr<std::vector<char>>
-  ReceiveVariableLengthMessage(co::Coroutine *c = nullptr) {
+  ReceiveVariableLengthMessage(const co::Coroutine *c = nullptr) {
     return std::visit(
         EyeOfNewt{
             [&](TCPSocket &s) { return s.ReceiveVariableLengthMessage(c); },
@@ -665,7 +669,7 @@ public:
   // at buffer-4.  This is to allow us to do a single send
   // to the socket rather than splitting it into 2.
   absl::StatusOr<ssize_t> SendMessage(char *buffer, size_t length,
-                                      co::Coroutine *c = nullptr) {
+                                      const co::Coroutine *c = nullptr) {
     return std::visit(
         EyeOfNewt{
             [&](TCPSocket &s) { return s.SendMessage(buffer, length, c); },
