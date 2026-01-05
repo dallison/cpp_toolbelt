@@ -173,3 +173,26 @@ TEST(FdTest, Reset) {
   int e = fstat(f, &st);
   ASSERT_EQ(-1, e);
 }
+
+TEST(FdTest, CreateUnowned) {
+  int f = dup(1);
+  {
+    FileDescriptor fd(f, false);
+    ASSERT_TRUE(fd.Valid());
+    ASSERT_EQ(f, fd.Fd());
+    ASSERT_EQ(1, fd.RefCount());
+  }
+  // Fd should still be open.
+  ASSERT_EQ(0, fcntl(f, F_GETFD));
+
+  // Now take ownership of f.
+  {
+    FileDescriptor fd(f, true);
+    ASSERT_TRUE(fd.Valid());
+    ASSERT_EQ(f, fd.Fd());
+    ASSERT_EQ(1, fd.RefCount());
+  }
+  // Will be closed.
+  ASSERT_EQ(-1, fcntl(f, F_GETFD));
+  ASSERT_EQ(EBADF, errno);
+}

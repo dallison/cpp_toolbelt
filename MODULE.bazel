@@ -4,21 +4,24 @@ module(
 
 http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
-bazel_dep(name = "bazel_skylib", version = "1.7.1")
 bazel_dep(name = "platforms", version = "0.0.10")
-bazel_dep(name = "abseil-cpp", version = "20240722.0.bcr.1", repo_name = "com_google_absl")
-bazel_dep(name = "googletest", version = "1.15.2", repo_name = "com_google_googletest")
+bazel_dep(name = "bazel_skylib", version = "1.9.0")
+bazel_dep(name = "abseil-cpp", version = "20250814.1")
+bazel_dep(name = "googletest", version = "1.17.0.bcr.2")
+
 
 # Coroutines
 http_archive(
     name = "coroutines",
-    integrity = "sha256-PhOYq1eE8Q8UOhzDHq2+rafTU4VTt9fZ0ZZyNE+hWb4=",
-    strip_prefix = "co-2.1.0",
-    urls = ["https://github.com/dallison/co/archive/refs/tags/2.1.0.tar.gz"],
+    integrity = "sha256-TNSGNjwZjsIomPfF0G+YiQGawmPk73fZ65HI9+qKM9s=",
+    strip_prefix = "co-3.0.0",
+    urls = ["https://github.com/dallison/co/releases/download/3.0.0/co-3.0.0.tar.gz"],
 )
+
 # For local debugging of co coroutine library.
 # bazel_dep(name = "coroutines")
 # local_path_override(
-#    module_name = "coroutines",
-#    path = "../co",
+#   module_name = "coroutines",
+#   path = "../co",
 # )
+

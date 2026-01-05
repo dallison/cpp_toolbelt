@@ -83,7 +83,7 @@ absl::Status Pipe::SetPipeSize(size_t size) {
 }
 
 absl::StatusOr<ssize_t> Pipe::Read(char *buffer, size_t length,
-                                   co::Coroutine *c) {
+                                   const co::Coroutine *c) {
   size_t total = 0;
   ScopedRead sc(*this, c);
 
@@ -123,7 +123,7 @@ absl::StatusOr<ssize_t> Pipe::Read(char *buffer, size_t length,
 }
 
 absl::StatusOr<ssize_t> Pipe::Write(const char *buffer, size_t length,
-                                    co::Coroutine *c) {
+                                    const co::Coroutine *c) {
   size_t total = 0;
   ScopedWrite sc(*this, c);
 

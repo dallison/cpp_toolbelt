@@ -7,6 +7,7 @@
 #include "clock.h"
 #include <cstdio>
 #include <inttypes.h>
+#include <termios.h>
 
 namespace toolbelt {
 
@@ -148,10 +149,19 @@ void Logger::VLog(LogLevel level, const char *fmt, va_list ap) {
   if (level < min_level_) {
     return;
   }
+#if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wformat-nonliteral"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
+#endif
   size_t n = vsnprintf(buffer_, sizeof(buffer_), fmt, ap);
+#if defined(__clang__)
 #pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
   // Strip final \n if present.  Refactoring from printf can leave
   // this in place.
