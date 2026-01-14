@@ -16,9 +16,11 @@ http_archive(
     strip_prefix = "co-3.0.0",
     urls = ["https://github.com/dallison/co/archive/refs/tags/3.0.0.tar.gz"],
 )
+
 # For local debugging of co coroutine library.
 # bazel_dep(name = "coroutines")
 # local_path_override(
-#    module_name = "coroutines",
-#    path = "../co",
+#   module_name = "coroutines",
+#   path = "../co",
 # )
+

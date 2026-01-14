@@ -5,7 +5,7 @@
 namespace toolbelt {
 static constexpr struct BitmapRunInfo {
   int num;
-  int size;
+  uint32_t size;
 } bitmp_run_infos[kNumBitmapRuns] = {
     {kRunSize1, kBitmapRunSize1},
     {kRunSize2, kBitmapRunSize2},
@@ -162,7 +162,7 @@ void PayloadBuffer::Dump(std::ostream &os) {
   os << "  free_list: " << free_list << " " << ToAddress(free_list)
      << std::endl;
   os << "  message: " << message << " " << ToAddress(message) << std::endl;
-  for (int i = 0; i < kNumBitmapRuns; i++) {
+  for (size_t i = 0; i < kNumBitmapRuns; i++) {
     os << "  bitmaps[" << i << "]: " << bitmaps[i] << " "
        << ToAddress(bitmaps[i]) << std::endl;
   }
@@ -576,9 +576,9 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
                            (n & kBitmapRunSizeMask);
 
         *len_ptr = encoded_size;
-        if (clear && n > decoded_length) {
+        if (clear && n > static_cast<uint32_t>(decoded_length)) {
           memset(reinterpret_cast<char *>(p) + decoded_length, 0,
-                 n - decoded_length);
+                 n - static_cast<uint32_t>(decoded_length));
         }
         return p;
       }
@@ -589,7 +589,7 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
         return NULL;
       }
       memcpy(newp, p, decoded_length);
-      if (clear && n > decoded_length) {
+      if (clear && n > static_cast<uint32_t>(decoded_length)) {
         memset(reinterpret_cast<char *>(newp) + decoded_length, 0,
                n - decoded_length);
       }
@@ -629,8 +629,8 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
       int diff = n - orig_length;
       if (alloc_addr + orig_length == free_addr) {
         // There is a free block above.  See if has enough space.
-        if (free_block->length > diff) {
-          ssize_t freelen = free_block->length - diff;
+        if (free_block->length > static_cast<uint32_t>(diff)) {
+          uint32_t freelen = free_block->length - static_cast<uint32_t>(diff);
           if (freelen > sizeof(FreeBlockHeader)) {
             (*buffer)->ExpandIntoFreeBlockAbove(free_block, n, diff, freelen,
                                                 len_ptr, next_ptr, clear);
@@ -642,7 +642,7 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
       if (prev != NULL) {
         uintptr_t prev_addr = (uintptr_t)prev;
         if (prev_addr + prev->length == (uintptr_t)alloc_block &&
-            prev->length >= diff) {
+            prev->length >= static_cast<uint32_t>(diff)) {
           // Previous free block is adjacent and has enough space in it.
           // Use start of new block as new address and place FreeBlockHeader
           // at newly free part.

@@ -3,7 +3,7 @@
 // See LICENSE file for licensing information.
 
 #include "absl/status/status_matchers.h"
-#include "coroutine.h"
+#include "co/coroutine.h"
 #include "pipe.h"
 #include <gtest/gtest.h>
 

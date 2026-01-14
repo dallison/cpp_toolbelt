@@ -12,6 +12,7 @@ cc_library(
         "sockets.cc",
         "table.cc",
         "triggerfd.cc",
+        "stacktrace.cc",
     ],
     hdrs = [
         "bitset.h",
@@ -26,6 +27,7 @@ cc_library(
         "sockets.h",
         "table.h",
         "triggerfd.h",
+        "stacktrace.h",
     ],
     deps = [
         "@abseil-cpp//absl/status",
@@ -63,7 +65,19 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
-
+cc_test(
+    name = "stacktrace_test",
+    size = "small",
+    srcs = ["stacktrace_test.cc"],
+    deps = [
+        ":toolbelt",
+        "@abseil-cpp//absl/hash:hash_testing",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:str_format",
+        "@googletest//:gtest_main",
+    ],
+)
 cc_test(
     name = "pipe_test",
     size = "small",
@@ -86,6 +100,7 @@ cc_test(
         ":toolbelt",
         "@abseil-cpp//absl/hash:hash_testing",
         "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:status_matchers",
         "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
     ],
