@@ -18,7 +18,7 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include "coroutine.h"
+#include "co/coroutine.h"
 
 namespace toolbelt {
 
@@ -56,7 +56,8 @@ public:
   FileDescriptor() = default;
   // FileDescriptor initialize with an OS fd.  Takes ownership
   // of the fd and will close it when all references go away.
-  explicit FileDescriptor(int fd) : data_(std::make_shared<SharedData>(fd)) {}
+  // If owned is false, the fd will not be closed when all references go away.
+  explicit FileDescriptor(int fd, bool owned = true) : data_(std::make_shared<SharedData>(fd, owned)) {}
 
   // Copy constructor, increments reference on shared data.  Very cheap.
   FileDescriptor(const FileDescriptor &f) : data_(f.data_) {}
@@ -119,13 +120,13 @@ public:
   // Sets the OS fd.  If it's the same as the underlying OS fd, there is
   // no effect (that's not another reference to it).  Allocates new
   // shared data for the fd.
-  void SetFd(int fd) {
+  void SetFd(int fd, bool owned = true) {
     if (Fd() == fd) {
       // SetFd with same fd.  This isn't another reference to the
       // fd.
       return;
     }
-    data_ = std::make_shared<SharedData>(fd);
+    data_ = std::make_shared<SharedData>(fd, owned);
   }
 
   void Reset() { Close(); }
@@ -187,23 +188,27 @@ public:
     return absl::OkStatus();
   }
 
-  absl::StatusOr<ssize_t> Read(void* buffer, size_t length, co::Coroutine* c = nullptr);
+  absl::StatusOr<ssize_t> Read(void* buffer, size_t length, const co::Coroutine* c = nullptr);
   absl::StatusOr<ssize_t> Write(const void* buffer, size_t length,
-                                      co::Coroutine* c = nullptr);
+                                      const co::Coroutine* c = nullptr);
 private:
   // Reference counted OS fd, shared among all FileDescriptors with the
   // same OS fd, provided you don't create two FileDescriptors with the
   // same OS fd (that would be a mistake but there's no way to stop it).
   struct SharedData {
     SharedData() = default;
-    SharedData(int f) : fd(f) {}
+    SharedData(int f, bool o) : fd(f), owned(o) {}
     ~SharedData() {
       if (fd != -1) {
+        if (!owned) {
+          return;
+        }
         ::close(fd);
       }
     }
     int fd = -1; // OS file descriptor.
     bool nonblocking = false;
+    bool owned = true;
   };
 
   // The actual shared data.  If nullptr the FileDescriptor is invalid.

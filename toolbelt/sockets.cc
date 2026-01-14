@@ -33,19 +33,19 @@ InetAddress InetAddress::AnyAddress(int port) { return InetAddress(port); }
 InetAddress::InetAddress(const in_addr &ip, int port) {
   valid_ = true;
   addr_ = {
-#if defined(_APPLE__)
-      .sin_len = sizeof(int),
+#if defined(__APPLE__)
+      .sin_len = sizeof(struct sockaddr_in),
 #endif
       .sin_family = AF_INET,
       .sin_port = htons(port),
-      .sin_addr = {.s_addr = htonl(ip.s_addr)}};
+      .sin_addr = {.s_addr = ip.s_addr}};
 }
 
 InetAddress::InetAddress(int port) {
   valid_ = true;
   addr_ = {
-#if defined(_APPLE__)
-      .sin_len = sizeof(int),
+#if defined(__APPLE__)
+      .sin_len = sizeof(struct sockaddr_in),
 #endif
       .sin_family = AF_INET,
       .sin_port = htons(port),
@@ -68,8 +68,8 @@ InetAddress::InetAddress(const std::string &hostname, int port) {
   }
   valid_ = true;
   addr_ = {
-#if defined(_APPLE__)
-      .sin_len = sizeof(int),
+#if defined(__APPLE__)
+      .sin_len = sizeof(struct sockaddr_in),
 #endif
       .sin_family = AF_INET,
       .sin_port = htons(port),
@@ -88,7 +88,7 @@ VirtualAddress::VirtualAddress(uint32_t cid, uint32_t port) {
   valid_ = true;
   memset(&addr_, 0, sizeof(addr_));
   addr_ = {
-#if defined(_APPLE__)
+#if defined(__APPLE__)
       .svm_len = sizeof(struct sockaddr_vm),
 #endif
       .svm_family = AF_VSOCK,
@@ -100,7 +100,7 @@ VirtualAddress::VirtualAddress(uint32_t port) {
   valid_ = true;
   memset(&addr_, 0, sizeof(addr_));
   addr_ = {
-#if defined(_APPLE__)
+#if defined(__APPLE__)
       .svm_len = sizeof(struct sockaddr_vm),
 #endif
       .svm_family = AF_VSOCK,
@@ -131,14 +131,17 @@ std::string VirtualAddress::ToString() const {
   return absl::StrFormat("%d:%d", addr_.svm_cid, addr_.svm_port);
 }
 
-static ssize_t ReceiveFully(co::Coroutine *c, int fd, size_t length,
+static ssize_t ReceiveFully(const co::Coroutine *c, int fd, size_t length,
                             char *buffer, size_t buflen) {
   int offset = 0;
   size_t remaining = length;
   while (remaining > 0) {
     size_t readlen = std::min(remaining, buflen);
     if (c != nullptr) {
-      c->Wait(fd, POLLIN);
+      int f = c->Wait(fd, POLLIN);
+      if (f != fd) {
+        return -1;
+      }
     }
     ssize_t n = ::recv(fd, buffer + offset, readlen, 0);
     if (n == -1) {
@@ -164,7 +167,7 @@ static ssize_t ReceiveFully(co::Coroutine *c, int fd, size_t length,
   return length;
 }
 
-static ssize_t SendFully(co::Coroutine *c, int fd, const char *buffer,
+static ssize_t SendFully(const co::Coroutine *c, int fd, const char *buffer,
                          size_t length, bool blocking) {
   size_t remaining = length;
   size_t offset = 0;
@@ -176,7 +179,10 @@ static ssize_t SendFully(co::Coroutine *c, int fd, const char *buffer,
       // Yielding before sending to a nonblocking socket will
       // cause a context switch between coroutines and we want
       // the write to the network to be as fast as possible.
-      c->Wait(fd, POLLOUT);
+      int f = c->Wait(fd, POLLOUT);
+      if (f != fd) {
+        return -1;
+      }
     }
     ssize_t n = ::send(fd, buffer + offset, remaining, 0);
     if (n == -1) {
@@ -190,7 +196,10 @@ static ssize_t SendFully(co::Coroutine *c, int fd, const char *buffer,
         // If we are nonblocking yield the coroutine now.  When we
         // are resumed we can write to the socket again.
         if (!blocking) {
-          c->Wait(fd, POLLOUT);
+          int f = c->Wait(fd, POLLOUT);
+          if (f != fd) {
+            return -1;
+          }
         }
         continue;
       }
@@ -207,7 +216,7 @@ static ssize_t SendFully(co::Coroutine *c, int fd, const char *buffer,
 }
 
 absl::StatusOr<ssize_t> Socket::Receive(char *buffer, size_t buflen,
-                                        co::Coroutine *c) {
+                                        const co::Coroutine *c) {
   if (!Connected()) {
     return absl::InternalError("Socket is not connected");
   }
@@ -221,7 +230,7 @@ absl::StatusOr<ssize_t> Socket::Receive(char *buffer, size_t buflen,
 }
 
 absl::StatusOr<ssize_t> Socket::Send(const char *buffer, size_t length,
-                                     co::Coroutine *c) {
+                                     const co::Coroutine *c) {
   if (!Connected()) {
     return absl::InternalError("Socket is not connected");
   }
@@ -235,7 +244,7 @@ absl::StatusOr<ssize_t> Socket::Send(const char *buffer, size_t length,
 }
 
 absl::StatusOr<ssize_t> Socket::ReceiveMessage(char *buffer, size_t buflen,
-                                               co::Coroutine *c) {
+                                               const co::Coroutine *c) {
   if (!Connected()) {
     return absl::InternalError("Socket is not connected");
   }
@@ -268,7 +277,7 @@ absl::StatusOr<ssize_t> Socket::ReceiveMessage(char *buffer, size_t buflen,
 }
 
 absl::StatusOr<std::vector<char>>
-Socket::ReceiveVariableLengthMessage(co::Coroutine *c) {
+Socket::ReceiveVariableLengthMessage(const co::Coroutine *c) {
   if (!Connected()) {
     return absl::InternalError("Socket is not connected");
   }
@@ -303,7 +312,7 @@ Socket::ReceiveVariableLengthMessage(co::Coroutine *c) {
 }
 
 absl::StatusOr<ssize_t> Socket::SendMessage(char *buffer, size_t length,
-                                            co::Coroutine *c) {
+                                            const co::Coroutine *c) {
   if (!Connected()) {
     return absl::InternalError("Socket is not connected");
   }
@@ -371,12 +380,15 @@ absl::Status UnixSocket::Bind(const std::string &pathname, bool listen) {
   return absl::OkStatus();
 }
 
-absl::StatusOr<UnixSocket> UnixSocket::Accept(co::Coroutine *c) const {
+absl::StatusOr<UnixSocket> UnixSocket::Accept(const co::Coroutine *c) const {
   if (!fd_.Valid()) {
     return absl::InternalError("UnixSocket is not valid");
   }
   if (c != nullptr) {
-    c->Wait(fd_.Fd(), POLLIN);
+    int fd = c->Wait(fd_.Fd(), POLLIN);
+    if (fd != fd_.Fd()) {
+      return absl::InternalError("Interrupted");
+    }
   }
   struct sockaddr_un sender;
   socklen_t sock_len = sizeof(sender);
@@ -419,7 +431,7 @@ absl::Status UnixSocket::Connect(const std::string &pathname) {
 }
 
 absl::Status UnixSocket::SendFds(const std::vector<FileDescriptor> &fds,
-                                 co::Coroutine *c) {
+                                 const co::Coroutine *c) {
   if (!Connected()) {
     return absl::InternalError("Socket is not connected");
   }
@@ -459,7 +471,10 @@ absl::Status UnixSocket::SendFds(const std::vector<FileDescriptor> &fds,
     }
 
     if (c != nullptr) {
-      c->Wait(fd_.Fd(), POLLOUT);
+      int fd = c->Wait(fd_.Fd(), POLLOUT);
+      if (fd != fd_.Fd()) {
+        return absl::InternalError("Interrupted");
+      }
     }
     int e = ::sendmsg(fd_.Fd(), &msg, 0);
     if (e == -1) {
@@ -473,7 +488,7 @@ absl::Status UnixSocket::SendFds(const std::vector<FileDescriptor> &fds,
 }
 
 absl::Status UnixSocket::ReceiveFds(std::vector<FileDescriptor> &fds,
-                                    co::Coroutine *c) {
+                                    const co::Coroutine *c) {
   if (!Connected()) {
     return absl::InternalError("Socket is not connected");
   }
@@ -498,7 +513,10 @@ absl::Status UnixSocket::ReceiveFds(std::vector<FileDescriptor> &fds,
                          .msg_controllen = sizeof(u.buf)};
 
     if (c != nullptr) {
-      c->Wait(fd_.Fd(), POLLIN);
+      int fd = c->Wait(fd_.Fd(), POLLIN);
+      if (fd != fd_.Fd()) {
+        return absl::InternalError("Interrupted");
+      }
     }
     ssize_t n = ::recvmsg(fd_.Fd(), &msg, 0);
     if (n == -1) {
@@ -634,12 +652,15 @@ absl::Status TCPSocket::Bind(const InetAddress &addr, bool listen) {
   return absl::OkStatus();
 }
 
-absl::StatusOr<TCPSocket> TCPSocket::Accept(co::Coroutine *c) const {
+absl::StatusOr<TCPSocket> TCPSocket::Accept(const co::Coroutine *c) const {
   if (!fd_.Valid()) {
     return absl::InternalError("Socket is not valid");
   }
   if (c != nullptr) {
-    c->Wait(fd_.Fd(), POLLIN);
+    int fd = c->Wait(fd_.Fd(), POLLIN);
+    if (fd != fd_.Fd()) {
+      return absl::InternalError("Interrupted");
+    }
   }
   struct sockaddr_in sender;
   socklen_t sock_len = sizeof(sender);
@@ -776,9 +797,12 @@ absl::Status UDPSocket::SetMulticastLoop() {
 }
 
 absl::Status UDPSocket::SendTo(const InetAddress &addr, const void *buffer,
-                               size_t length, co::Coroutine *c) {
+                               size_t length, const co::Coroutine *c) {
   if (c != nullptr) {
-    c->Wait(fd_.Fd(), POLLOUT);
+    int fd = c->Wait(fd_.Fd(), POLLOUT);
+    if (fd != fd_.Fd()) {
+      return absl::InternalError("Interrupted");
+    }
   }
   ssize_t n = ::sendto(fd_.Fd(), buffer, length, 0,
                        reinterpret_cast<const sockaddr *>(&addr.GetAddress()),
@@ -792,9 +816,12 @@ absl::Status UDPSocket::SendTo(const InetAddress &addr, const void *buffer,
 }
 
 absl::StatusOr<ssize_t> UDPSocket::Receive(void *buffer, size_t buflen,
-                                           co::Coroutine *c) {
+                                           const co::Coroutine *c) {
   if (c != nullptr) {
-    c->Wait(fd_.Fd(), POLLIN);
+    int fd = c->Wait(fd_.Fd(), POLLIN);
+    if (fd != fd_.Fd()) {
+      return absl::InternalError("Interrupted");
+    }
   }
   ssize_t n = recv(fd_.Fd(), buffer, buflen, 0);
   if (n == -1) {
@@ -805,9 +832,12 @@ absl::StatusOr<ssize_t> UDPSocket::Receive(void *buffer, size_t buflen,
 }
 absl::StatusOr<ssize_t> UDPSocket::ReceiveFrom(InetAddress &sender,
                                                void *buffer, size_t buflen,
-                                               co::Coroutine *c) {
+                                               const co::Coroutine *c) {
   if (c != nullptr) {
-    c->Wait(fd_.Fd(), POLLIN);
+    int fd = c->Wait(fd_.Fd(), POLLIN);
+    if (fd != fd_.Fd()) {
+      return absl::InternalError("Interrupted");
+    }
   }
   struct sockaddr_in sender_addr;
   socklen_t sender_addr_length = sizeof(sender_addr);
@@ -819,6 +849,9 @@ absl::StatusOr<ssize_t> UDPSocket::ReceiveFrom(InetAddress &sender,
     return absl::InternalError(
         absl::StrFormat("Unable to receive UDP datagram: %s", strerror(errno)));
   }
+#if defined(__APPLE__)
+  sender_addr.sin_len = sender_addr_length;
+#endif
   sender = {sender_addr};
   return n;
 }
@@ -859,12 +892,15 @@ absl::Status VirtualStreamSocket::Bind(const VirtualAddress &addr,
 }
 
 absl::StatusOr<VirtualStreamSocket>
-VirtualStreamSocket::Accept(co::Coroutine *c) const {
+VirtualStreamSocket::Accept(const co::Coroutine *c) const {
   if (!fd_.Valid()) {
     return absl::InternalError("Socket is not valid");
   }
   if (c != nullptr) {
-    c->Wait(fd_.Fd(), POLLIN);
+    int fd = c->Wait(fd_.Fd(), POLLIN);
+    if (fd != fd_.Fd()) {
+      return absl::InternalError("Interrupted");
+    }
   }
   struct sockaddr_vm sender;
   socklen_t sock_len = sizeof(sender);
