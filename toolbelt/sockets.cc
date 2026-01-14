@@ -121,7 +121,7 @@ VirtualAddress VirtualAddress::AnyAddress(uint32_t port) {
   return VirtualAddress(VMADDR_CID_ANY, port);
 }
 
-#if defined(__linux__)
+#if defined(__linux__) && defined(VMADDR_CID_LOCAL)
 VirtualAddress VirtualAddress::LocalAddress(uint32_t port) {
   return VirtualAddress(VMADDR_CID_LOCAL, port);
 }
