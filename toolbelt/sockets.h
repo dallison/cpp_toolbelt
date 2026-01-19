@@ -99,6 +99,8 @@ public:
   in_addr IpAddress() const { return {ntohl(addr_.sin_addr.s_addr)}; }
   int Port() const { return ntohs(addr_.sin_port); }
 
+  in_addr IpAddressInNetworkOrder() const { return {addr_.sin_addr.s_addr}; }
+
   // Port is in host byte order.
   void SetPort(int port) { addr_.sin_port = htons(port); }
 
@@ -239,7 +241,7 @@ public:
     return std::visit(
         EyeOfNewt{
             [](const InetAddress &a) {
-              return SocketAddress(a.IpAddress(), 0);
+              return SocketAddress(a.IpAddressInNetworkOrder(), 0);
             },
             [](const VirtualAddress &a) { return SocketAddress(a.Cid(), 0); },
             [](const std::string &a) { return SocketAddress(a); }},
