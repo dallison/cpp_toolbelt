@@ -98,9 +98,9 @@ public:
   // Construct and return a struct pollfd suitable for use in ::poll.
   struct pollfd GetPollFd() {
     if (data_ == nullptr) {
-      return {.fd = -1, .events = POLLIN};
+      return {.fd = -1, .events = POLLIN, .revents = 0};
     }
-    return {.fd = data_->fd, .events = POLLIN};
+    return {.fd = data_->fd, .events = POLLIN, .revents = 0};
   }
 
   bool operator==(const FileDescriptor &fd) const {

@@ -338,7 +338,8 @@ TEST(BufferTest, TypicalPerformance) {
     for (int j = 0; j < 1000; j++) {
       int prev_size = int(large_blocks.size());
       for (int i = 0; i < kNumBlocks; i++) {
-        void *addr = PayloadBuffer::Allocate(&pb, 10, false, /*enable_small_block=*/false);
+        void *addr = PayloadBuffer::Allocate(&pb, 10, false,
+                                             /*enable_small_block=*/false);
         large_blocks.push_back(addr);
       }
       // Free some of the blocks.
@@ -367,8 +368,7 @@ TEST(BufferTest, Many) {
   char *buffer = (char *)malloc(kSize);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
-  std::vector<void *> addrs =
-      PayloadBuffer::AllocateMany(&pb, 100, 10, true);
+  std::vector<void *> addrs = PayloadBuffer::AllocateMany(&pb, 100, 10, true);
   ASSERT_EQ(10, addrs.size());
   // Print the addresses.
   for (auto addr : addrs) {
@@ -497,10 +497,22 @@ TEST(BufferTest, VectorExpandMore) {
 TEST(BufferTest, Resizeable) {
   char *buffer = (char *)malloc(512);
   bool resized = false;
-  PayloadBuffer *pb = new (buffer)
-      PayloadBuffer(256, [&resized](PayloadBuffer **p, size_t old_size, size_t new_size) {
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(
+      256, [&resized](PayloadBuffer **p, size_t, size_t new_size) {
         std::cout << "resize for " << new_size << std::endl;
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wclass-memaccess"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#endif
         *p = reinterpret_cast<PayloadBuffer *>(realloc(*p, new_size));
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
         resized = true;
       });
   pb->Dump(std::cout);

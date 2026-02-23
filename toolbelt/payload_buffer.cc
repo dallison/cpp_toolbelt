@@ -732,7 +732,7 @@ BitMapRun *PayloadBuffer::AllocateBitMapRun(PayloadBuffer **self, uint32_t size,
   return run;
 }
 
-void *BitMapRun::Allocate(PayloadBuffer **pb, int index, uint32_t n, int size,
+void *BitMapRun::Allocate(PayloadBuffer **pb, int index, uint32_t, int size,
                           int num, bool clear) {
   // Lazy init of vector.
   if ((*pb)->bitmaps[index] == 0) {

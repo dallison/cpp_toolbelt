@@ -283,7 +283,7 @@ public:
     return std::visit(
         EyeOfNewt{[](const InetAddress &a) { return int(a.Port()); },
                   [](const VirtualAddress &a) { return int(a.Port()); },
-                  [](const std::string &a) { return 0; }},
+                  [](const std::string &) { return 0; }},
         address_);
   }
 

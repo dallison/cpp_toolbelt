@@ -1,6 +1,7 @@
 #pragma once
 
 #include "absl/types/span.h"
+#include "toolbelt/hexdump.h"
 #include <functional>
 #include <iostream>
 #include <stdint.h>
@@ -8,7 +9,6 @@
 #include <string.h>
 #include <string>
 #include <string_view>
-#include "toolbelt/hexdump.h"
 
 namespace toolbelt {
 
@@ -228,7 +228,7 @@ struct PayloadBuffer {
     return (p[word] & (1 << bit)) != 0;
   }
 
-  static uint32_t DecodeSize(BufferOffset* addr) {
+  static uint32_t DecodeSize(BufferOffset *addr) {
     // Length is 64 bits long but we only need the bottom 32 bits of it.
     uint32_t *p = reinterpret_cast<uint32_t *>(addr) - 2;
     if ((*p & (1U << 31)) == 0) {
@@ -314,12 +314,11 @@ struct PayloadBuffer {
   FreeBlockHeader *FreeList() { return ToAddress<FreeBlockHeader>(free_list); }
 
   // Allocate some memory in the buffer.  The buffer might move.
-  static void *Allocate(PayloadBuffer **buffer, uint32_t n,
-                        bool clear = true, bool enable_small_block = true);
+  static void *Allocate(PayloadBuffer **buffer, uint32_t n, bool clear = true,
+                        bool enable_small_block = true);
   void Free(void *p);
   static void *Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
-                       bool clear = true,
-                       bool enable_small_block = true);
+                       bool clear = true, bool enable_small_block = true);
   static BufferOffset AllocateBitMapRunVector(PayloadBuffer **self);
   static void *AllocateSmallBlock(PayloadBuffer **pb, uint32_t size, int index,
                                   bool clear = true);
@@ -331,8 +330,7 @@ struct PayloadBuffer {
   // individually. The addresses of the allocated items are returned in a
   // vector.
   static std::vector<void *> AllocateMany(PayloadBuffer **buffer, uint32_t size,
-                                          uint32_t n,
-                                          bool clear = true);
+                                          uint32_t n, bool clear = true);
 
   bool IsValidMagic() const {
     uint32_t m = magic & kBitMapMask;
@@ -353,12 +351,12 @@ struct PayloadBuffer {
   // Given the address of a block, return the size of the block.  This is
   // in the previous 8 bytes but might be encoded if the block is a small
   // block.
-  static uint32_t DecodedSize(BufferOffset* addr) {
-      BufferOffset* p = addr - 2;
-      if (*p & (1U << 31)) {
-          return *p & kBitmapRunSizeMask;
-      }
-      return *p;
+  static uint32_t DecodedSize(BufferOffset *addr) {
+    BufferOffset *p = addr - 2;
+    if (*p & (1U << 31)) {
+      return *p & kBitmapRunSizeMask;
+    }
+    return *p;
   }
 
   template <typename T = void>
@@ -483,11 +481,16 @@ inline void PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
   // BufferOffset data;         - BufferOffset to vector contents
   // The vector contents is allocated in the buffer.  It is preceded
   // by the block size (in bytes).
+  BufferOffset hdr_offset = (*self)->ToOffset(hdr);
+
   uint32_t total_size = hdr->num_elements * sizeof(T);
   if (hdr->data == 0) {
     // The vector is empty, allocate it with a default size of 2.
     void *vecp = Allocate(self, 2 * sizeof(T), true, enable_small_block);
     hdr->data = (*self)->ToOffset(vecp);
+    VectorHeader *new_hdr = (*self)->ToAddress<VectorHeader>(hdr_offset);
+    new_hdr->data = (*self)->ToOffset(vecp);
+    hdr = new_hdr;
   } else {
     // Vector has some values in it.  Retrieve the total size from
     // the allocated block header (before the start of the memory)
@@ -495,9 +498,11 @@ inline void PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
     uint32_t current_size = DecodeSize(block);
     if (current_size == total_size) {
       // Need to double the size of the memory.
-      void *vecp = Realloc(self, block, 2 * hdr->num_elements * sizeof(T),
-                           true, enable_small_block);
-      hdr->data = (*self)->ToOffset(vecp);
+      void *vecp = Realloc(self, block, 2 * hdr->num_elements * sizeof(T), true,
+                           enable_small_block);
+      VectorHeader *new_hdr = (*self)->ToAddress<VectorHeader>(hdr_offset);
+      new_hdr->data = (*self)->ToOffset(vecp);
+      hdr = new_hdr;
     }
   }
   // Get address of next location in vector.
@@ -512,9 +517,12 @@ template <typename T>
 inline void PayloadBuffer::VectorReserve(PayloadBuffer **self,
                                          VectorHeader *hdr, size_t n,
                                          bool enable_small_block) {
+  BufferOffset hdr_offset = (*self)->ToOffset(hdr);
   if (hdr->data == 0) {
     void *vecp = Allocate(self, n * sizeof(T), false, enable_small_block);
-    hdr->data = (*self)->ToOffset(vecp);
+    VectorHeader* new_hdr = (*self)->ToAddress<VectorHeader>(hdr_offset);
+    new_hdr->data = (*self)->ToOffset(vecp);
+    hdr = new_hdr;
   } else {
     // Vector has some values in it.  Retrieve the total size from
     // the allocated block header (before the start of the memory)
@@ -524,7 +532,9 @@ inline void PayloadBuffer::VectorReserve(PayloadBuffer **self,
       // Need to expand the memory to the size given.
       void *vecp =
           Realloc(self, block, n * sizeof(T), false, enable_small_block);
-      hdr->data = (*self)->ToOffset(vecp);
+      VectorHeader* new_hdr = (*self)->ToAddress<VectorHeader>(hdr_offset);
+      new_hdr->data = (*self)->ToOffset(vecp);
+      hdr = new_hdr;
     }
   }
 }
@@ -532,9 +542,12 @@ inline void PayloadBuffer::VectorReserve(PayloadBuffer **self,
 template <typename T>
 inline void PayloadBuffer::VectorResize(PayloadBuffer **self, VectorHeader *hdr,
                                         size_t n) {
+  BufferOffset hdr_offset = (*self)->ToOffset(hdr);
   if (hdr->data == 0) {
     void *vecp = Allocate(self, n * sizeof(T));
-    hdr->data = (*self)->ToOffset(vecp);
+    VectorHeader* new_hdr = (*self)->ToAddress<VectorHeader>(hdr_offset);
+    new_hdr->data = (*self)->ToOffset(vecp);
+    hdr = new_hdr;
   } else {
     // Vector has some values in it.  Retrieve the total size from
     // the allocated block header (before the start of the memory)
@@ -543,7 +556,9 @@ inline void PayloadBuffer::VectorResize(PayloadBuffer **self, VectorHeader *hdr,
     if (current_size < n * sizeof(T)) {
       // Need to expand the memory to the size given.
       void *vecp = Realloc(self, block, n * sizeof(T), 8);
-      hdr->data = (*self)->ToOffset(vecp);
+      VectorHeader* new_hdr = (*self)->ToAddress<VectorHeader>(hdr_offset);
+      new_hdr->data = (*self)->ToOffset(vecp);
+      hdr = new_hdr;
     }
   }
   hdr->num_elements = n;
