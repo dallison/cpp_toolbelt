@@ -150,11 +150,11 @@ public:
   SharedPtrPipe(int r, int w) : Pipe(r, w) {}
 
   // You can't use raw buffers with shared ptr pipes.
-  absl::StatusOr<ssize_t> Read(char *buffer, size_t length,
-                               const co::Coroutine *c = nullptr) override {
+  absl::StatusOr<ssize_t> Read(char *, size_t ,
+                               const co::Coroutine * = nullptr) override {
     return absl::InternalError("Not supported on SharedPtrPipe");
   }
-  absl::StatusOr<ssize_t> Write(const char *buffer, size_t length,
+  absl::StatusOr<ssize_t> Write(const char *, size_t ,
                                 const co::Coroutine *c = nullptr) override {
     return absl::InternalError("Not supported on SharedPtrPipe");
   }

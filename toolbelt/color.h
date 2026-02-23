@@ -48,13 +48,13 @@ struct Color {
   FixedColor fixed = FixedColor::kNotSet;
 
   // Your terminal might not support this.
-  int eight; // 8-bit color for k8bit.
+  int eight = 0; // 8-bit color for k8bit.
 
   // If fixed is kNotSet, these are RGB values for the color.
   // Your terminal may not support this.
-  int r;
-  int g;
-  int b;
+  int r = 0;
+  int g = 0;
+  int b = 0;
 };
 
 // Make a 3-bit fixed color.

@@ -17,7 +17,7 @@ class Table {
 public:
   struct Cell {
     std::string data;
-    color::Color color;
+    color::Color color = {.mod = color::kNormal, .fixed = color::FixedColor::kNotSet};
   };
 
   Table(const std::vector<std::string> titles, ssize_t sort_column = 0,
@@ -61,9 +61,9 @@ public:
 
 private:
   struct Column {
-    std::string title;
-    int width;
-    std::vector<Cell> cells;
+    std::string title = "";
+    int width = 0;
+    std::vector<Cell> cells = {};
   };
 
   void Render(int width);
@@ -71,10 +71,10 @@ private:
 
   void AddCell(size_t col, const Cell &cell);
 
-  std::vector<Column> cols_;
+  std::vector<Column> cols_ = {};
   int num_rows_ = 0;
 
-  size_t sort_column_;
+  size_t sort_column_ = 0;
   std::function<bool(const std::string &, const std::string &)> sorter_;
 };
 

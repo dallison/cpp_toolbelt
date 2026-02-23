@@ -34,22 +34,26 @@ InetAddress::InetAddress(const in_addr &ip, int port) {
   valid_ = true;
   addr_ = {
 #if defined(__APPLE__)
-      .sin_len = sizeof(struct sockaddr_in),
+    .sin_len = sizeof(struct sockaddr_in),
 #endif
-      .sin_family = AF_INET,
-      .sin_port = htons(port),
-      .sin_addr = {.s_addr = ip.s_addr}};
+    .sin_family = AF_INET,
+    .sin_port = htons(port),
+    .sin_addr = {.s_addr = ip.s_addr},
+    .sin_zero = {0}
+  };
 }
 
 InetAddress::InetAddress(int port) {
   valid_ = true;
   addr_ = {
 #if defined(__APPLE__)
-      .sin_len = sizeof(struct sockaddr_in),
+    .sin_len = sizeof(struct sockaddr_in),
 #endif
-      .sin_family = AF_INET,
-      .sin_port = htons(port),
-      .sin_addr = {.s_addr = INADDR_ANY}};
+    .sin_family = AF_INET,
+    .sin_port = htons(port),
+    .sin_addr = {.s_addr = INADDR_ANY},
+    .sin_zero = {0}
+  };
 }
 
 InetAddress::InetAddress(const std::string &hostname, int port) {
@@ -69,11 +73,13 @@ InetAddress::InetAddress(const std::string &hostname, int port) {
   valid_ = true;
   addr_ = {
 #if defined(__APPLE__)
-      .sin_len = sizeof(struct sockaddr_in),
+    .sin_len = sizeof(struct sockaddr_in),
 #endif
-      .sin_family = AF_INET,
-      .sin_port = htons(port),
-      .sin_addr = {.s_addr = ipaddr}};
+    .sin_family = AF_INET,
+    .sin_port = htons(port),
+    .sin_addr = {.s_addr = ipaddr},
+    .sin_zero = {0}
+  };
 }
 
 std::string InetAddress::ToString() const {
@@ -87,25 +93,51 @@ std::string InetAddress::ToString() const {
 VirtualAddress::VirtualAddress(uint32_t cid, uint32_t port) {
   valid_ = true;
   memset(&addr_, 0, sizeof(addr_));
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmissing-field-initializers"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
   addr_ = {
 #if defined(__APPLE__)
-      .svm_len = sizeof(struct sockaddr_vm),
+    .svm_len = sizeof(struct sockaddr_vm),
 #endif
-      .svm_family = AF_VSOCK,
-      .svm_port = port,
-      .svm_cid = cid};
+    .svm_family = AF_VSOCK,
+    .svm_port = port,
+    .svm_cid = cid
+  };
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 }
 
 VirtualAddress::VirtualAddress(uint32_t port) {
   valid_ = true;
   memset(&addr_, 0, sizeof(addr_));
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmissing-field-initializers"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
   addr_ = {
 #if defined(__APPLE__)
-      .svm_len = sizeof(struct sockaddr_vm),
+    .svm_len = sizeof(struct sockaddr_vm),
 #endif
-      .svm_family = AF_VSOCK,
-      .svm_port = port,
-      .svm_cid = VMADDR_CID_ANY};
+    .svm_family = AF_VSOCK,
+    .svm_port = port,
+    .svm_cid = VMADDR_CID_ANY
+  };
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 }
 
 VirtualAddress VirtualAddress::HypervisorAddress(uint32_t port) {
@@ -455,12 +487,23 @@ absl::Status UnixSocket::SendFds(const std::vector<FileDescriptor> &fds,
     struct iovec iov = {.iov_base = reinterpret_cast<void *>(&num_fds),
                         .iov_len = sizeof(int32_t)};
     size_t fds_size = fds_to_send * sizeof(int);
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmissing-field-initializers"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
     struct msghdr msg = {.msg_iov = &iov,
                          .msg_iovlen = 1,
                          .msg_control = u.buf,
                          .msg_controllen =
                              static_cast<socklen_t>(CMSG_SPACE(fds_size))};
-
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
     struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
     cmsg->cmsg_level = SOL_SOCKET;
     cmsg->cmsg_type = SCM_RIGHTS;
@@ -507,11 +550,22 @@ absl::Status UnixSocket::ReceiveFds(std::vector<FileDescriptor> &fds,
     struct iovec iov = {.iov_base = reinterpret_cast<void *>(&total_fds),
                         .iov_len = sizeof(int32_t)};
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmissing-field-initializers"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
     struct msghdr msg = {.msg_iov = &iov,
                          .msg_iovlen = 1,
                          .msg_control = u.buf,
                          .msg_controllen = sizeof(u.buf)};
-
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
     if (c != nullptr) {
       int fd = c->Wait(fd_.Fd(), POLLIN);
       if (fd != fd_.Fd()) {
@@ -695,7 +749,7 @@ absl::StatusOr<InetAddress> TCPSocket::GetPeerName() const {
   return InetAddress(peer);
 }
 
-absl::StatusOr<InetAddress> TCPSocket::LocalAddress(int port) const {
+absl::StatusOr<InetAddress> TCPSocket::LocalAddress(int) const {
   if (!fd_.Valid()) {
     return absl::InternalError("Socket is not valid");
   }
