@@ -71,7 +71,7 @@ template <int Size> inline void BitSet<Size>::Set(int b) {
 }
 
 template <int Size> inline bool BitSet<Size>::IsEmpty() const {
-  for (std::size_t i = 0; i < kNumWords; i++) {
+  for (int i = 0; i < kNumWords; i++) {
     if (bits_[i] != 0) {
       return false;
     }
