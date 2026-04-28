@@ -37,7 +37,7 @@
 // Older systems may not have the header file.
 #if !HAS_VM_SOCKETS
 struct sockaddr_vm {
-#if defined(_APPLE__)
+#if defined(__APPLE__)
   uint8_t svm_len;      /* total length of sockaddr */
 #endif
   sa_family_t svm_family; /* AF_VSOCK */
