@@ -799,9 +799,13 @@ absl::Status UDPSocket::Bind(const InetAddress &addr) {
 }
 
 absl::Status UDPSocket::JoinMulticastGroup(const InetAddress &addr) {
-  ip_mreqn membership_request{.imr_multiaddr = addr.GetAddress().sin_addr,
-                              .imr_address = {INADDR_ANY},
-                              .imr_ifindex = 0};
+  // Use POSIX-portable ip_mreq instead of Linux-specific ip_mreqn so this
+  // builds on macOS, BSDs and QNX as well.  We always join via the default
+  // interface (INADDR_ANY); callers needing per-interface control should
+  // extend this API.
+  struct ip_mreq membership_request = {};
+  membership_request.imr_multiaddr = addr.GetAddress().sin_addr;
+  membership_request.imr_interface.s_addr = htonl(INADDR_ANY);
   int setsockopt_ret =
       ::setsockopt(fd_.Fd(), IPPROTO_IP, IP_ADD_MEMBERSHIP, &membership_request,
                    sizeof(membership_request));
@@ -815,9 +819,9 @@ absl::Status UDPSocket::JoinMulticastGroup(const InetAddress &addr) {
 }
 
 absl::Status UDPSocket::LeaveMulticastGroup(const InetAddress &addr) {
-  ip_mreqn membership_request{.imr_multiaddr = addr.GetAddress().sin_addr,
-                              .imr_address = {INADDR_ANY},
-                              .imr_ifindex = 0};
+  struct ip_mreq membership_request = {};
+  membership_request.imr_multiaddr = addr.GetAddress().sin_addr;
+  membership_request.imr_interface.s_addr = htonl(INADDR_ANY);
   int setsockopt_ret =
       ::setsockopt(fd_.Fd(), IPPROTO_IP, IP_DROP_MEMBERSHIP,
                    &membership_request, sizeof(membership_request));
