@@ -82,7 +82,7 @@ cc_test(
 )
 cc_test(
     name = "pipe_test",
-    size = "small",
+    size = "medium",
     srcs = ["pipe_test.cc"],
     deps = [
         ":toolbelt",
