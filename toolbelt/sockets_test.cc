@@ -512,8 +512,6 @@ TEST(SocketsTest, UDPSocket_SendAndReceiveUnicast) {
   std::vector<char> Receive_buffer(TEST_DATA.size());
   ASSERT_EQ(*Receiver.Receive(Receive_buffer.data(), Receive_buffer.size()), TEST_DATA.size());
   ASSERT_EQ(std::string_view(Receive_buffer.data(), Receive_buffer.size()), TEST_DATA);
-
-  ASSERT_EQ(0, std::strcmp(Receive_buffer.data(), TEST_DATA.data()));
 }
 
 TEST(SocketsTest, UDPSocket_SendAndReceiveBroadcast) {
@@ -532,8 +530,6 @@ TEST(SocketsTest, UDPSocket_SendAndReceiveBroadcast) {
   std::vector<char> Receive_buffer(TEST_DATA.size());
   ASSERT_EQ(*Receiver.Receive(Receive_buffer.data(), Receive_buffer.size()), TEST_DATA.size());
   ASSERT_EQ(std::string_view(Receive_buffer.data(), Receive_buffer.size()), TEST_DATA);
-
-  ASSERT_EQ(0, std::strcmp(Receive_buffer.data(), TEST_DATA.data()));
 }
 
 TEST(SocketsTest, UDPSocket_SendAndReceiveMulticast) {
