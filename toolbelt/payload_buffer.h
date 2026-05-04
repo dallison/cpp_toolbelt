@@ -487,7 +487,6 @@ inline void PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
   if (hdr->data == 0) {
     // The vector is empty, allocate it with a default size of 2.
     void *vecp = Allocate(self, 2 * sizeof(T), true, enable_small_block);
-    hdr->data = (*self)->ToOffset(vecp);
     VectorHeader *new_hdr = (*self)->ToAddress<VectorHeader>(hdr_offset);
     new_hdr->data = (*self)->ToOffset(vecp);
     hdr = new_hdr;
