@@ -11,7 +11,7 @@ using VectorHeader = toolbelt::VectorHeader;
 using Resizer = toolbelt::Resizer;
 
 TEST(BufferTest, Simple) {
-  char *buffer = (char *)malloc(4096);
+  char *buffer = (char *)calloc(1, 4096);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
   pb->Dump(std::cout);
   toolbelt::Hexdump(pb, 64);
@@ -25,7 +25,7 @@ TEST(BufferTest, Simple) {
 }
 
 TEST(BufferTest, TwoAllocs) {
-  char *buffer = (char *)malloc(4096);
+  char *buffer = (char *)calloc(1, 4096);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
   pb->Dump(std::cout);
   toolbelt::Hexdump(pb, 64);
@@ -45,7 +45,7 @@ TEST(BufferTest, TwoAllocs) {
 }
 
 TEST(BufferTest, Free) {
-  char *buffer = (char *)malloc(4096);
+  char *buffer = (char *)calloc(1, 4096);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
   pb->Dump(std::cout);
   toolbelt::Hexdump(pb, 64);
@@ -68,7 +68,7 @@ TEST(BufferTest, Free) {
 }
 
 TEST(BufferTest, FreeThenAlloc) {
-  char *buffer = (char *)malloc(4096);
+  char *buffer = (char *)calloc(1, 4096);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
   pb->Dump(std::cout);
   toolbelt::Hexdump(pb, 64);
@@ -95,7 +95,7 @@ TEST(BufferTest, FreeThenAlloc) {
 }
 
 TEST(BufferTest, SmallBlockAllocSimple) {
-  char *buffer = (char *)malloc(4096);
+  char *buffer = (char *)calloc(1, 4096);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
 
   void *addr = PayloadBuffer::Allocate(&pb, 16);
@@ -105,10 +105,13 @@ TEST(BufferTest, SmallBlockAllocSimple) {
   // Allocate again and make sure it's the same address.
   void *addr2 = PayloadBuffer::Allocate(&pb, 16);
   ASSERT_EQ(addr, addr2);
+
+  pb->~PayloadBuffer();
+  free(buffer);
 }
 
 TEST(BufferTest, SmallBlockAlloc) {
-  char *buffer = (char *)malloc(8192);
+  char *buffer = (char *)calloc(1, 8192);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(8192);
 
   // Small block sizes are 16, 32, 64 and 128.
@@ -137,10 +140,13 @@ TEST(BufferTest, SmallBlockAlloc) {
   }
   pb->Dump(std::cout);
   toolbelt::Hexdump(pb, pb->hwm);
+
+  pb->~PayloadBuffer();
+  free(buffer);
 }
 
 TEST(BufferTest, SmallBlockAllocFree) {
-  char *buffer = (char *)malloc(8192);
+  char *buffer = (char *)calloc(1, 8192);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(8192);
 
   // Do a mix of sizes and free them.
@@ -169,6 +175,9 @@ TEST(BufferTest, SmallBlockAllocFree) {
   }
   pb->Dump(std::cout);
   toolbelt::Hexdump(pb, pb->hwm);
+
+  pb->~PayloadBuffer();
+  free(buffer);
 }
 
 // This performance test compares the performance of the small block allocator
@@ -186,7 +195,7 @@ TEST(BufferTest, BestCasePerformance) {
   constexpr int kIterations = 10000;
 
   for (int iter = 0; iter < kIterations; iter++) {
-    char *buffer = (char *)malloc(kSize);
+    char *buffer = (char *)calloc(1, kSize);
     PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
     ASSERT_TRUE(PayloadBuffer::PrimeBitmapAllocator(&pb, 16));
@@ -231,7 +240,7 @@ TEST(BufferTest, BestCasePerformance) {
 
     // New buffer.
     free(buffer);
-    buffer = (char *)malloc(kSize);
+    buffer = (char *)calloc(1, kSize);
     pb = new (buffer) PayloadBuffer(kSize);
 
     // Now allocate by disabling the small block allocator.
@@ -299,7 +308,7 @@ TEST(BufferTest, TypicalPerformance) {
   }
 
   for (int iter = 0; iter < kIterations; iter++) {
-    char *buffer = (char *)malloc(kSize);
+    char *buffer = (char *)calloc(1, kSize);
     PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
     // No priming the small block allocator for this test.  It probably won't
@@ -329,7 +338,7 @@ TEST(BufferTest, TypicalPerformance) {
 
     // New buffer.
     free(buffer);
-    buffer = (char *)malloc(kSize);
+    buffer = (char *)calloc(1, kSize);
     pb = new (buffer) PayloadBuffer(kSize);
 
     // Switch off small block alloctor.
@@ -365,7 +374,7 @@ TEST(BufferTest, TypicalPerformance) {
 
 TEST(BufferTest, Many) {
   constexpr size_t kSize = 8192;
-  char *buffer = (char *)malloc(kSize);
+  char *buffer = (char *)calloc(1, kSize);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
   std::vector<void *> addrs = PayloadBuffer::AllocateMany(&pb, 100, 10, true);
@@ -387,7 +396,7 @@ TEST(BufferTest, Many) {
 }
 
 TEST(BufferTest, String) {
-  char *buffer = (char *)malloc(4096);
+  char *buffer = (char *)calloc(1, 4096);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
 
   // Allocate space for a message containing an offset for the string.
@@ -417,7 +426,7 @@ TEST(BufferTest, String) {
 }
 
 TEST(BufferTest, Vector) {
-  char *buffer = (char *)malloc(4096);
+  char *buffer = (char *)calloc(1, 4096);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
 
   // Allocate space for a message containing the VectorHeader.
@@ -439,7 +448,7 @@ TEST(BufferTest, Vector) {
 }
 
 TEST(BufferTest, VectorExpand) {
-  char *buffer = (char *)malloc(4096);
+  char *buffer = (char *)calloc(1, 4096);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
 
   // Allocate space for a message containing the VectorHeader.
@@ -466,7 +475,7 @@ TEST(BufferTest, VectorExpand) {
 }
 
 TEST(BufferTest, VectorExpandMore) {
-  char *buffer = (char *)malloc(4096);
+  char *buffer = (char *)calloc(1, 4096);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
 
   // Allocate space for a message containing the VectorHeader.
@@ -494,8 +503,123 @@ TEST(BufferTest, VectorExpandMore) {
   free(buffer);
 }
 
+TEST(BufferTest, VectorPushWithResize) {
+  char *buffer = (char *)calloc(256, 1);
+  bool resized = false;
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(
+      256, [&resized, &buffer](PayloadBuffer **p, size_t, size_t new_size) {
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wclass-memaccess"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#endif
+        *p = reinterpret_cast<PayloadBuffer *>(realloc(*p, new_size));
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+        buffer = reinterpret_cast<char *>(*p);
+        resized = true;
+      });
+
+  PayloadBuffer::AllocateMainMessage(&pb, sizeof(VectorHeader));
+  BufferOffset msg_offset = pb->message;
+
+  constexpr int kCount = 200;
+  for (int i = 0; i < kCount; i++) {
+    VectorHeader *hdr = pb->ToAddress<VectorHeader>(msg_offset);
+    PayloadBuffer::VectorPush<uint32_t>(&pb, hdr, i + 1);
+  }
+  ASSERT_TRUE(resized);
+
+  VectorHeader *hdr = pb->ToAddress<VectorHeader>(msg_offset);
+  ASSERT_EQ(kCount, hdr->num_elements);
+  for (int i = 0; i < kCount; i++) {
+    uint32_t v = pb->VectorGet<uint32_t>(hdr, i);
+    ASSERT_EQ(i + 1, v);
+  }
+
+  pb->~PayloadBuffer();
+  free(buffer);
+}
+
+TEST(BufferTest, VectorReserveWithResize) {
+  char *buffer = (char *)calloc(256, 1);
+  bool resized = false;
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(
+      256, [&resized, &buffer](PayloadBuffer **p, size_t, size_t new_size) {
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wclass-memaccess"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#endif
+        *p = reinterpret_cast<PayloadBuffer *>(realloc(*p, new_size));
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+        buffer = reinterpret_cast<char *>(*p);
+        resized = true;
+      });
+
+  PayloadBuffer::AllocateMainMessage(&pb, sizeof(VectorHeader));
+  BufferOffset msg_offset = pb->message;
+
+  VectorHeader *hdr = pb->ToAddress<VectorHeader>(msg_offset);
+  PayloadBuffer::VectorReserve<uint32_t>(&pb, hdr, 500);
+  ASSERT_TRUE(resized);
+
+  hdr = pb->ToAddress<VectorHeader>(msg_offset);
+  ASSERT_NE(0u, hdr->data);
+
+  pb->~PayloadBuffer();
+  free(buffer);
+}
+
+TEST(BufferTest, VectorResizeWithResize) {
+  char *buffer = (char *)calloc(256, 1);
+  bool resized = false;
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(
+      256, [&resized, &buffer](PayloadBuffer **p, size_t, size_t new_size) {
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wclass-memaccess"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#endif
+        *p = reinterpret_cast<PayloadBuffer *>(realloc(*p, new_size));
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+        buffer = reinterpret_cast<char *>(*p);
+        resized = true;
+      });
+
+  PayloadBuffer::AllocateMainMessage(&pb, sizeof(VectorHeader));
+  BufferOffset msg_offset = pb->message;
+
+  VectorHeader *hdr = pb->ToAddress<VectorHeader>(msg_offset);
+  PayloadBuffer::VectorResize<uint32_t>(&pb, hdr, 500);
+  ASSERT_TRUE(resized);
+
+  hdr = pb->ToAddress<VectorHeader>(msg_offset);
+  ASSERT_EQ(500u, hdr->num_elements);
+
+  pb->~PayloadBuffer();
+  free(buffer);
+}
+
 TEST(BufferTest, Resizeable) {
-  char *buffer = (char *)malloc(512);
+  char *buffer = (char *)calloc(1, 512);
   bool resized = false;
   PayloadBuffer *pb = new (buffer) PayloadBuffer(
       256, [&resized](PayloadBuffer **p, size_t, size_t new_size) {
@@ -537,7 +661,11 @@ TEST(BufferTest, Resizeable) {
   toolbelt::Hexdump(pb, pb->hwm);
 
   // Don't free 'buffer' as it has already been freed by the call to realloc.
-  delete pb;
+  // pb was constructed via placement-new on a malloc/realloc'd buffer, so we
+  // must invoke the destructor explicitly and then free() the storage rather
+  // than calling operator delete (which would be an alloc-dealloc mismatch).
+  pb->~PayloadBuffer();
+  free(pb);
 }
 
 int main(int argc, char **argv) {

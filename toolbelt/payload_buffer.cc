@@ -584,10 +584,13 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
       }
       // Need to free the old block and allocate a new one as the small block
       // index is different.
+      BufferOffset p_offset = (*buffer)->ToOffset(p);
       void *newp = Allocate(buffer, n, false, enable_small_block);
       if (newp == NULL) {
         return NULL;
       }
+      // Re-derive p since Allocate may have triggered a buffer resize.
+      p = (*buffer)->ToAddress(p_offset);
       memcpy(newp, p, decoded_length);
       if (clear && n > static_cast<uint32_t>(decoded_length)) {
         memset(reinterpret_cast<char *>(newp) + decoded_length, 0,
@@ -662,10 +665,13 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
   // one, copy the memory and free the old block.  We are guaranteed that
   // the new block is larger than the original one since if it was smaller
   // we can always reuse the block.
+  BufferOffset p_offset = (*buffer)->ToOffset(p);
   void *newp = Allocate(buffer, n, false, enable_small_block);
   if (newp == NULL) {
     return NULL;
   }
+  // Re-derive p since Allocate may have triggered a buffer resize.
+  p = (*buffer)->ToAddress(p_offset);
   memcpy(newp, p, orig_length);
   if (clear) {
     memset(reinterpret_cast<char *>(newp) + orig_length, 0, n - orig_length);
@@ -686,15 +692,14 @@ bool PayloadBuffer::PrimeBitmapAllocator(PayloadBuffer **self, size_t size) {
     return false;
   }
   (*self)->bitmaps[index] = offset;
-  VectorHeader *hdr = (*self)->ToAddress<VectorHeader>((*self)->bitmaps[index]);
 
   BitMapRun *run = PayloadBuffer::AllocateBitMapRun(
       self, bitmp_run_infos[index].size, bitmp_run_infos[index].num);
   if (run == nullptr) {
     return false;
   }
-  // Add to the vector, this might move the vector contents but the header
-  // will stay where it is.
+  // Re-derive hdr since AllocateBitMapRun may have triggered a buffer resize.
+  VectorHeader *hdr = (*self)->ToAddress<VectorHeader>((*self)->bitmaps[index]);
   (*self)->VectorPush<BufferOffset>(self, hdr, (*self)->ToOffset(run), false);
   return true;
 }
@@ -742,8 +747,10 @@ void *BitMapRun::Allocate(PayloadBuffer **pb, int index, uint32_t, int size,
     }
     (*pb)->bitmaps[index] = offset;
   }
-  VectorHeader *hdr = (*pb)->ToAddress<VectorHeader>((*pb)->bitmaps[index]);
   for (;;) {
+    // Re-derive hdr each iteration since allocations below may trigger a
+    // buffer resize (realloc), invalidating any previous pointer.
+    VectorHeader *hdr = (*pb)->ToAddress<VectorHeader>((*pb)->bitmaps[index]);
     // Go backwards through the elements as that is most likely to find a free
     // bit.
     for (int i = hdr->num_elements - 1; i >= 0; i--) {
@@ -781,8 +788,9 @@ void *BitMapRun::Allocate(PayloadBuffer **pb, int index, uint32_t, int size,
     if (run == nullptr) {
       return nullptr;
     }
-    // Add to the vector, this might move the vector contents but the header
-    // will stay where it is.
+    // Re-derive hdr since AllocateBitMapRun may have triggered a buffer
+    // resize, invalidating the previous pointer.
+    hdr = (*pb)->ToAddress<VectorHeader>((*pb)->bitmaps[index]);
     (*pb)->VectorPush<BufferOffset>(pb, hdr, (*pb)->ToOffset(run), false);
   }
 }
