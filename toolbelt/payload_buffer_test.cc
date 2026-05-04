@@ -105,6 +105,9 @@ TEST(BufferTest, SmallBlockAllocSimple) {
   // Allocate again and make sure it's the same address.
   void *addr2 = PayloadBuffer::Allocate(&pb, 16);
   ASSERT_EQ(addr, addr2);
+
+  pb->~PayloadBuffer();
+  free(buffer);
 }
 
 TEST(BufferTest, SmallBlockAlloc) {
@@ -137,6 +140,9 @@ TEST(BufferTest, SmallBlockAlloc) {
   }
   pb->Dump(std::cout);
   toolbelt::Hexdump(pb, pb->hwm);
+
+  pb->~PayloadBuffer();
+  free(buffer);
 }
 
 TEST(BufferTest, SmallBlockAllocFree) {
@@ -169,6 +175,9 @@ TEST(BufferTest, SmallBlockAllocFree) {
   }
   pb->Dump(std::cout);
   toolbelt::Hexdump(pb, pb->hwm);
+
+  pb->~PayloadBuffer();
+  free(buffer);
 }
 
 // This performance test compares the performance of the small block allocator
