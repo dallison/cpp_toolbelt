@@ -515,6 +515,11 @@ TEST(SocketsTest, UDPSocket_SendAndReceiveUnicast) {
 }
 
 TEST(SocketsTest, UDPSocket_SendAndReceiveBroadcast) {
+#if defined(__APPLE__)
+  GTEST_SKIP() << "UDP broadcast to 255.255.255.255 over loopback is not "
+                  "permitted in the GitHub Actions macOS runner network "
+                  "sandbox; skip on macOS.";
+#endif
   UnusedPort port;
   auto sender = toolbelt::UDPSocket();
   auto Receiver = toolbelt::UDPSocket();
@@ -533,6 +538,11 @@ TEST(SocketsTest, UDPSocket_SendAndReceiveBroadcast) {
 }
 
 TEST(SocketsTest, UDPSocket_SendAndReceiveMulticast) {
+#if defined(__APPLE__)
+    GTEST_SKIP() << "UDP multicast over loopback is not reliably available in "
+                    "the GitHub Actions macOS runner network sandbox; skip on "
+                    "macOS.";
+#endif
     UnusedPort port;
     std::string multicast_ip = "224.0.0.205";
     toolbelt::InetAddress multicast_address(multicast_ip, port);
