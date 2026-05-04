@@ -503,6 +503,121 @@ TEST(BufferTest, VectorExpandMore) {
   free(buffer);
 }
 
+TEST(BufferTest, VectorPushWithResize) {
+  char *buffer = (char *)calloc(256, 1);
+  bool resized = false;
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(
+      256, [&resized, &buffer](PayloadBuffer **p, size_t, size_t new_size) {
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wclass-memaccess"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#endif
+        *p = reinterpret_cast<PayloadBuffer *>(realloc(*p, new_size));
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+        buffer = reinterpret_cast<char *>(*p);
+        resized = true;
+      });
+
+  PayloadBuffer::AllocateMainMessage(&pb, sizeof(VectorHeader));
+  BufferOffset msg_offset = pb->message;
+
+  constexpr int kCount = 200;
+  for (int i = 0; i < kCount; i++) {
+    VectorHeader *hdr = pb->ToAddress<VectorHeader>(msg_offset);
+    PayloadBuffer::VectorPush<uint32_t>(&pb, hdr, i + 1);
+  }
+  ASSERT_TRUE(resized);
+
+  VectorHeader *hdr = pb->ToAddress<VectorHeader>(msg_offset);
+  ASSERT_EQ(kCount, hdr->num_elements);
+  for (int i = 0; i < kCount; i++) {
+    uint32_t v = pb->VectorGet<uint32_t>(hdr, i);
+    ASSERT_EQ(i + 1, v);
+  }
+
+  pb->~PayloadBuffer();
+  free(buffer);
+}
+
+TEST(BufferTest, VectorReserveWithResize) {
+  char *buffer = (char *)calloc(256, 1);
+  bool resized = false;
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(
+      256, [&resized, &buffer](PayloadBuffer **p, size_t, size_t new_size) {
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wclass-memaccess"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#endif
+        *p = reinterpret_cast<PayloadBuffer *>(realloc(*p, new_size));
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+        buffer = reinterpret_cast<char *>(*p);
+        resized = true;
+      });
+
+  PayloadBuffer::AllocateMainMessage(&pb, sizeof(VectorHeader));
+  BufferOffset msg_offset = pb->message;
+
+  VectorHeader *hdr = pb->ToAddress<VectorHeader>(msg_offset);
+  PayloadBuffer::VectorReserve<uint32_t>(&pb, hdr, 500);
+  ASSERT_TRUE(resized);
+
+  hdr = pb->ToAddress<VectorHeader>(msg_offset);
+  ASSERT_NE(0u, hdr->data);
+
+  pb->~PayloadBuffer();
+  free(buffer);
+}
+
+TEST(BufferTest, VectorResizeWithResize) {
+  char *buffer = (char *)calloc(256, 1);
+  bool resized = false;
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(
+      256, [&resized, &buffer](PayloadBuffer **p, size_t, size_t new_size) {
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wclass-memaccess"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#endif
+        *p = reinterpret_cast<PayloadBuffer *>(realloc(*p, new_size));
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+        buffer = reinterpret_cast<char *>(*p);
+        resized = true;
+      });
+
+  PayloadBuffer::AllocateMainMessage(&pb, sizeof(VectorHeader));
+  BufferOffset msg_offset = pb->message;
+
+  VectorHeader *hdr = pb->ToAddress<VectorHeader>(msg_offset);
+  PayloadBuffer::VectorResize<uint32_t>(&pb, hdr, 500);
+  ASSERT_TRUE(resized);
+
+  hdr = pb->ToAddress<VectorHeader>(msg_offset);
+  ASSERT_EQ(500u, hdr->num_elements);
+
+  pb->~PayloadBuffer();
+  free(buffer);
+}
+
 TEST(BufferTest, Resizeable) {
   char *buffer = (char *)calloc(1, 512);
   bool resized = false;
