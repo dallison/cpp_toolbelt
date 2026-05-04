@@ -6,6 +6,7 @@
 #include "co/coroutine.h"
 #include "pipe.h"
 #include <gtest/gtest.h>
+#include <string_view>
 
 #define VAR(a) a##__COUNTER__
 #define EVAL_AND_ASSERT_OK(expr) EVAL_AND_ASSERT_OK2(VAR(r_), expr)
@@ -69,7 +70,7 @@ TEST(PipeTest, CoroutinePipeReadAndWrite) {
     auto r = pipe.Read(buffer, 5, c);
     ASSERT_OK(r);
     ASSERT_EQ(*r, 5);
-    ASSERT_STREQ(buffer, "Hello");
+    ASSERT_EQ(std::string_view(buffer, *r), "Hello");
   });
   co::Coroutine writer(scheduler, [&pipe](co::Coroutine *c) {
     const char *msg = "Hello";
@@ -92,7 +93,7 @@ TEST(PipeTest, CoroutinePipeReadAndWriteNonblocking) {
     auto r = pipe.Read(buffer, 5, c);
     ASSERT_OK(r);
     ASSERT_EQ(*r, 5);
-    ASSERT_STREQ(buffer, "Hello");
+    ASSERT_EQ(std::string_view(buffer, *r), "Hello");
   });
   co::Coroutine writer(scheduler, [&pipe](co::Coroutine *c) {
     const char *msg = "Hello";
@@ -158,7 +159,7 @@ TEST(PipeTest, CoroutineFullPipeReadAndWrite) {
       auto r = pipe.Read(buffer, kMessageSize, c);
       ASSERT_OK(r);
       ASSERT_EQ(*r, kMessageSize);
-      ASSERT_STREQ(buffer, "1234");
+      ASSERT_EQ(std::string_view(buffer, *r), "1234");
     }
   });
   co::Coroutine writer(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
@@ -174,6 +175,10 @@ TEST(PipeTest, CoroutineFullPipeReadAndWrite) {
 }
 
 TEST(PipeTest, CoroutineOverFullPipeReadAndWrite) {
+#if defined(THREAD_SANITIZER)
+  GTEST_SKIP() << "TSan + many coroutine fiber switches in this stress test "
+                  "trips a known TSan runtime issue (nested DEADLYSIGNAL).";
+#endif
   co::CoroutineScheduler scheduler;
   auto p = toolbelt::Pipe::Create();
   ASSERT_OK(p);
@@ -189,7 +194,7 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWrite) {
       auto r = pipe.Read(buffer, kMessageSize, c);
       ASSERT_OK(r);
       ASSERT_EQ(*r, kMessageSize);
-      ASSERT_STREQ(buffer, "1234");
+      ASSERT_EQ(std::string_view(buffer, *r), "1234");
     }
   });
   co::Coroutine writer(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
@@ -221,7 +226,7 @@ TEST(PipeTest, CoroutineFullPipeReadAndWriteNonblocking) {
       auto r = pipe.Read(buffer, kMessageSize, c);
       ASSERT_OK(r);
       ASSERT_EQ(*r, kMessageSize);
-      ASSERT_STREQ(buffer, "1234");
+      ASSERT_EQ(std::string_view(buffer, *r), "1234");
     }
   });
   co::Coroutine writer(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
@@ -237,6 +242,10 @@ TEST(PipeTest, CoroutineFullPipeReadAndWriteNonblocking) {
 }
 
 TEST(PipeTest, CoroutineOverFullPipeReadAndWriteNonblocking) {
+#if defined(THREAD_SANITIZER)
+  GTEST_SKIP() << "TSan + many coroutine fiber switches in this stress test "
+                  "trips a known TSan runtime issue (nested DEADLYSIGNAL).";
+#endif
   co::CoroutineScheduler scheduler;
   auto p = toolbelt::Pipe::Create();
   ASSERT_OK(p);
@@ -253,7 +262,7 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWriteNonblocking) {
       auto r = pipe.Read(buffer, kMessageSize, c);
       ASSERT_OK(r);
       ASSERT_EQ(*r, kMessageSize);
-      ASSERT_STREQ(buffer, "1234");
+      ASSERT_EQ(std::string_view(buffer, *r), "1234");
     }
   });
   co::Coroutine writer(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
@@ -279,12 +288,12 @@ TEST(PipeTest, CoroutinePipeReadAndMultiWrite) {
     auto r = pipe.Read(buffer, 5, c);
     ASSERT_OK(r);
     ASSERT_EQ(*r, 5);
-    ASSERT_STREQ(buffer, "12345");
+    ASSERT_EQ(std::string_view(buffer, *r), "12345");
 
     r = pipe.Read(buffer, 5, c);
     ASSERT_OK(r);
     ASSERT_EQ(*r, 5);
-    ASSERT_STREQ(buffer, "54321");
+    ASSERT_EQ(std::string_view(buffer, *r), "54321");
   });
 
   co::Coroutine writer1(scheduler, [&pipe](co::Coroutine *c) {
@@ -304,6 +313,10 @@ TEST(PipeTest, CoroutinePipeReadAndMultiWrite) {
 }
 
 TEST(PipeTest, CoroutineOverFullPipeReadAndWriteMultiwriter) {
+#if defined(THREAD_SANITIZER)
+  GTEST_SKIP() << "TSan + many coroutine fiber switches in this stress test "
+                  "trips a known TSan runtime issue (nested DEADLYSIGNAL).";
+#endif
   co::CoroutineScheduler scheduler;
   auto p = toolbelt::Pipe::Create();
   ASSERT_OK(p);
@@ -320,7 +333,8 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWriteMultiwriter) {
       ASSERT_OK(r);
       ASSERT_EQ(*r, kMessageSize);
       // Can be in either order.
-      bool ok = (strcmp(buffer, "1234") == 0) || (strcmp(buffer, "4321") == 0);
+      std::string_view got(buffer, *r);
+      bool ok = got == "1234" || got == "4321";
       ASSERT_TRUE(ok);
     }
   });
@@ -347,6 +361,10 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWriteMultiwriter) {
 
 
 TEST(PipeTest, CoroutineOverFullPipeReadAndWriteMultiwriterNonblocking) {
+#if defined(THREAD_SANITIZER)
+  GTEST_SKIP() << "TSan + many coroutine fiber switches in this stress test "
+                  "trips a known TSan runtime issue (nested DEADLYSIGNAL).";
+#endif
   co::CoroutineScheduler scheduler;
   auto p = toolbelt::Pipe::Create();
   ASSERT_OK(p);
@@ -364,7 +382,8 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWriteMultiwriterNonblocking) {
       ASSERT_OK(r);
       ASSERT_EQ(*r, kMessageSize);
       // Can be in either order.
-      bool ok = (strcmp(buffer, "1234") == 0) || (strcmp(buffer, "4321") == 0);
+      std::string_view got(buffer, *r);
+      bool ok = got == "1234" || got == "4321";
       ASSERT_TRUE(ok);
     }
   });
