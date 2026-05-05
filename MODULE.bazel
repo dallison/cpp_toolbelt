@@ -1,6 +1,6 @@
 module(
     name = "cpp_toolbelt",
-    version = "2.1.1",
+    version = "2.1.2",
 )
 
 bazel_dep(name = "platforms", version = "1.0.0")
