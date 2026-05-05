@@ -32,28 +32,24 @@ InetAddress InetAddress::AnyAddress(int port) { return InetAddress(port); }
 
 InetAddress::InetAddress(const in_addr &ip, int port) {
   valid_ = true;
-  addr_ = {
+  addr_ = {};
 #if defined(__APPLE__)
-    .sin_len = sizeof(struct sockaddr_in),
+  addr_.sin_len = sizeof(struct sockaddr_in);
 #endif
-    .sin_family = AF_INET,
-    .sin_port = htons(port),
-    .sin_addr = {.s_addr = ip.s_addr},
-    .sin_zero = {0}
-  };
+  addr_.sin_family = AF_INET;
+  addr_.sin_port = htons(port);
+  addr_.sin_addr.s_addr = ip.s_addr;
 }
 
 InetAddress::InetAddress(int port) {
   valid_ = true;
-  addr_ = {
+  addr_ = {};
 #if defined(__APPLE__)
-    .sin_len = sizeof(struct sockaddr_in),
+  addr_.sin_len = sizeof(struct sockaddr_in);
 #endif
-    .sin_family = AF_INET,
-    .sin_port = htons(port),
-    .sin_addr = {.s_addr = INADDR_ANY},
-    .sin_zero = {0}
-  };
+  addr_.sin_family = AF_INET;
+  addr_.sin_port = htons(port);
+  addr_.sin_addr.s_addr = INADDR_ANY;
 }
 
 InetAddress::InetAddress(const std::string &hostname, int port) {
@@ -71,15 +67,13 @@ InetAddress::InetAddress(const std::string &hostname, int port) {
     }
   }
   valid_ = true;
-  addr_ = {
+  addr_ = {};
 #if defined(__APPLE__)
-    .sin_len = sizeof(struct sockaddr_in),
+  addr_.sin_len = sizeof(struct sockaddr_in);
 #endif
-    .sin_family = AF_INET,
-    .sin_port = htons(port),
-    .sin_addr = {.s_addr = ipaddr},
-    .sin_zero = {0}
-  };
+  addr_.sin_family = AF_INET;
+  addr_.sin_port = htons(port);
+  addr_.sin_addr.s_addr = ipaddr;
 }
 
 std::string InetAddress::ToString() const {
@@ -468,10 +462,7 @@ absl::Status UnixSocket::SendFds(const std::vector<FileDescriptor> &fds,
     return absl::InternalError("Socket is not connected");
   }
   constexpr size_t kMaxFds = 252;
-  union {
-    char buf[CMSG_SPACE(kMaxFds * sizeof(int))];
-    struct cmsghdr align;
-  } u;
+  std::vector<char> control_buf(CMSG_SPACE(kMaxFds * sizeof(int)));
 
   // We send the total number file descriptors.  There is a limit to the
   // number we can send in one message.
@@ -480,7 +471,7 @@ absl::Status UnixSocket::SendFds(const std::vector<FileDescriptor> &fds,
 
   // We need to send at least one message, even if there are no fds to send.
   do {
-    memset(u.buf, 0, sizeof(u.buf));
+    std::fill(control_buf.begin(), control_buf.end(), 0);
 
     int32_t num_fds = static_cast<int32_t>(fds.size());
     size_t fds_to_send = remaining_fds > kMaxFds ? kMaxFds : remaining_fds;
@@ -496,7 +487,7 @@ absl::Status UnixSocket::SendFds(const std::vector<FileDescriptor> &fds,
 #endif
     struct msghdr msg = {.msg_iov = &iov,
                          .msg_iovlen = 1,
-                         .msg_control = u.buf,
+                         .msg_control = control_buf.data(),
                          .msg_controllen =
                              static_cast<socklen_t>(CMSG_SPACE(fds_size))};
 #if defined(__clang__)
@@ -536,13 +527,12 @@ absl::Status UnixSocket::ReceiveFds(std::vector<FileDescriptor> &fds,
     return absl::InternalError("Socket is not connected");
   }
   constexpr size_t kMaxFds = 252;
-  union {
-    char buf[CMSG_SPACE(kMaxFds * sizeof(int))];
-    struct cmsghdr align;
-  } u;
+  std::vector<char> control_buf(CMSG_SPACE(kMaxFds * sizeof(int)));
 
   int32_t num_fds_received = 0;
   for (;;) {
+    std::fill(control_buf.begin(), control_buf.end(), 0);
+
     // The total number of fds we need to see.  This is
     // sent in each message, but each message contains only portion
     // of the total (there's a limit per message).
@@ -559,8 +549,9 @@ absl::Status UnixSocket::ReceiveFds(std::vector<FileDescriptor> &fds,
 #endif
     struct msghdr msg = {.msg_iov = &iov,
                          .msg_iovlen = 1,
-                         .msg_control = u.buf,
-                         .msg_controllen = sizeof(u.buf)};
+                         .msg_control = control_buf.data(),
+                         .msg_controllen =
+                             static_cast<socklen_t>(control_buf.size())};
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #elif defined(__GNUC__)
