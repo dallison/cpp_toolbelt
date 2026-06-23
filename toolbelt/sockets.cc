@@ -573,16 +573,43 @@ absl::Status UnixSocket::ReceiveFds(std::vector<FileDescriptor> &fds,
           absl::StrFormat("EOF from socket while reading fds\n"));
     }
 
-    struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
-    if (cmsg == nullptr) {
-      // This can happen, apparently.
-      return absl::OkStatus();
+    if ((msg.msg_flags & MSG_CTRUNC) != 0) {
+      return absl::InternalError(
+          "Control data was truncated while reading fds from unix socket");
     }
-    int *fdptr = reinterpret_cast<int *>(CMSG_DATA(cmsg));
-    int num_fds = (cmsg->cmsg_len - sizeof(struct cmsghdr)) / sizeof(int);
-    for (int i = 0; i < num_fds; i++) {
-      fds.emplace_back(fdptr[i]);
+
+    bool saw_rights = false;
+    int num_fds = 0;
+    for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg); cmsg != nullptr;
+         cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+      if (cmsg->cmsg_level != SOL_SOCKET || cmsg->cmsg_type != SCM_RIGHTS) {
+        continue;
+      }
+      saw_rights = true;
+      if (cmsg->cmsg_len < CMSG_LEN(0)) {
+        return absl::InternalError(absl::StrFormat(
+            "Invalid SCM_RIGHTS control length %zu while reading fds",
+            static_cast<size_t>(cmsg->cmsg_len)));
+      }
+      size_t data_len = cmsg->cmsg_len - CMSG_LEN(0);
+      if (data_len % sizeof(int) != 0) {
+        return absl::InternalError(absl::StrFormat(
+            "Misaligned SCM_RIGHTS control length %zu while reading fds",
+            static_cast<size_t>(cmsg->cmsg_len)));
+      }
+      int *fdptr = reinterpret_cast<int *>(CMSG_DATA(cmsg));
+      int fds_in_message = static_cast<int>(data_len / sizeof(int));
+      for (int i = 0; i < fds_in_message; i++) {
+        fds.emplace_back(fdptr[i]);
+      }
+      num_fds += fds_in_message;
     }
+    if (!saw_rights && total_fds > 0) {
+      return absl::InternalError(absl::StrFormat(
+          "Expected %d fds from unix socket but received no SCM_RIGHTS message",
+          total_fds));
+    }
+
     // Add the number we received in this message to the total.
     num_fds_received += num_fds;
 
