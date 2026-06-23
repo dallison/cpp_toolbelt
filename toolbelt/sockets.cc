@@ -485,23 +485,23 @@ absl::Status UnixSocket::SendFds(const std::vector<FileDescriptor> &fds,
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
-    struct msghdr msg = {.msg_iov = &iov,
-                         .msg_iovlen = 1,
-                         .msg_control = control_buf.data(),
-                         .msg_controllen =
-                             static_cast<socklen_t>(CMSG_SPACE(fds_size))};
+    struct msghdr msg = {.msg_iov = &iov, .msg_iovlen = 1};
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #elif defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
-    struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
-    cmsg->cmsg_level = SOL_SOCKET;
-    cmsg->cmsg_type = SCM_RIGHTS;
-    cmsg->cmsg_len = CMSG_LEN(fds_size);
-    int *fdptr = reinterpret_cast<int *>(CMSG_DATA(cmsg));
-    for (size_t i = first_fd; i < first_fd + fds_to_send; i++) {
-      *fdptr++ = fds[i].Fd();
+    if (fds_to_send > 0) {
+      msg.msg_control = control_buf.data();
+      msg.msg_controllen = static_cast<socklen_t>(CMSG_SPACE(fds_size));
+      struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
+      cmsg->cmsg_level = SOL_SOCKET;
+      cmsg->cmsg_type = SCM_RIGHTS;
+      cmsg->cmsg_len = CMSG_LEN(fds_size);
+      int *fdptr = reinterpret_cast<int *>(CMSG_DATA(cmsg));
+      for (size_t i = first_fd; i < first_fd + fds_to_send; i++) {
+        *fdptr++ = fds[i].Fd();
+      }
     }
 
     if (c != nullptr) {
@@ -531,14 +531,19 @@ absl::Status UnixSocket::ReceiveFds(std::vector<FileDescriptor> &fds,
 
   int32_t num_fds_received = 0;
   for (;;) {
-    std::fill(control_buf.begin(), control_buf.end(), 0);
-
     // The total number of fds we need to see.  This is
     // sent in each message, but each message contains only portion
     // of the total (there's a limit per message).
-    int32_t total_fds;
-    struct iovec iov = {.iov_base = reinterpret_cast<void *>(&total_fds),
-                        .iov_len = sizeof(int32_t)};
+    int32_t total_fds = 0;
+    size_t total_fds_bytes = 0;
+    bool saw_rights = false;
+    int num_fds = 0;
+
+    while (total_fds_bytes < sizeof(total_fds)) {
+      std::fill(control_buf.begin(), control_buf.end(), 0);
+      struct iovec iov = {
+          .iov_base = reinterpret_cast<char *>(&total_fds) + total_fds_bytes,
+          .iov_len = sizeof(total_fds) - total_fds_bytes};
 
 #if defined(__clang__)
 #pragma clang diagnostic push
@@ -547,62 +552,67 @@ absl::Status UnixSocket::ReceiveFds(std::vector<FileDescriptor> &fds,
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
-    struct msghdr msg = {.msg_iov = &iov,
-                         .msg_iovlen = 1,
-                         .msg_control = control_buf.data(),
-                         .msg_controllen =
-                             static_cast<socklen_t>(control_buf.size())};
+      struct msghdr msg = {.msg_iov = &iov,
+                           .msg_iovlen = 1,
+                           .msg_control = control_buf.data(),
+                           .msg_controllen =
+                               static_cast<socklen_t>(control_buf.size())};
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #elif defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
-    if (c != nullptr) {
-      int fd = c->Wait(fd_.Fd(), POLLIN);
-      if (fd != fd_.Fd()) {
-        return absl::InternalError("Interrupted");
+      if (c != nullptr) {
+        int fd = c->Wait(fd_.Fd(), POLLIN);
+        if (fd != fd_.Fd()) {
+          return absl::InternalError("Interrupted");
+        }
       }
-    }
-    ssize_t n = ::recvmsg(fd_.Fd(), &msg, 0);
-    if (n == -1) {
-      return absl::InternalError(absl::StrFormat(
-          "Failed to read fds to unix socket: %s", strerror(errno)));
-    }
-    if (n == 0) {
-      return absl::InternalError(
-          absl::StrFormat("EOF from socket while reading fds\n"));
+      ssize_t n = ::recvmsg(fd_.Fd(), &msg, 0);
+      if (n == -1) {
+        return absl::InternalError(absl::StrFormat(
+            "Failed to read fds to unix socket: %s", strerror(errno)));
+      }
+      if (n == 0) {
+        return absl::InternalError(
+            absl::StrFormat("EOF from socket while reading fds\n"));
+      }
+
+      total_fds_bytes += static_cast<size_t>(n);
+
+      if ((msg.msg_flags & MSG_CTRUNC) != 0) {
+        return absl::InternalError(
+            "Control data was truncated while reading fds from unix socket");
+      }
+
+      for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg); cmsg != nullptr;
+           cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+        if (cmsg->cmsg_level != SOL_SOCKET || cmsg->cmsg_type != SCM_RIGHTS) {
+          continue;
+        }
+        saw_rights = true;
+        if (cmsg->cmsg_len < CMSG_LEN(0)) {
+          return absl::InternalError(absl::StrFormat(
+              "Invalid SCM_RIGHTS control length %zu while reading fds",
+              static_cast<size_t>(cmsg->cmsg_len)));
+        }
+        size_t data_len = cmsg->cmsg_len - CMSG_LEN(0);
+        if (data_len % sizeof(int) != 0) {
+          return absl::InternalError(absl::StrFormat(
+              "Misaligned SCM_RIGHTS control length %zu while reading fds",
+              static_cast<size_t>(cmsg->cmsg_len)));
+        }
+        int *fdptr = reinterpret_cast<int *>(CMSG_DATA(cmsg));
+        int fds_in_message = static_cast<int>(data_len / sizeof(int));
+        for (int i = 0; i < fds_in_message; i++) {
+          fds.emplace_back(fdptr[i]);
+        }
+        num_fds += fds_in_message;
+      }
     }
 
-    if ((msg.msg_flags & MSG_CTRUNC) != 0) {
-      return absl::InternalError(
-          "Control data was truncated while reading fds from unix socket");
-    }
-
-    bool saw_rights = false;
-    int num_fds = 0;
-    for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg); cmsg != nullptr;
-         cmsg = CMSG_NXTHDR(&msg, cmsg)) {
-      if (cmsg->cmsg_level != SOL_SOCKET || cmsg->cmsg_type != SCM_RIGHTS) {
-        continue;
-      }
-      saw_rights = true;
-      if (cmsg->cmsg_len < CMSG_LEN(0)) {
-        return absl::InternalError(absl::StrFormat(
-            "Invalid SCM_RIGHTS control length %zu while reading fds",
-            static_cast<size_t>(cmsg->cmsg_len)));
-      }
-      size_t data_len = cmsg->cmsg_len - CMSG_LEN(0);
-      if (data_len % sizeof(int) != 0) {
-        return absl::InternalError(absl::StrFormat(
-            "Misaligned SCM_RIGHTS control length %zu while reading fds",
-            static_cast<size_t>(cmsg->cmsg_len)));
-      }
-      int *fdptr = reinterpret_cast<int *>(CMSG_DATA(cmsg));
-      int fds_in_message = static_cast<int>(data_len / sizeof(int));
-      for (int i = 0; i < fds_in_message; i++) {
-        fds.emplace_back(fdptr[i]);
-      }
-      num_fds += fds_in_message;
+    if (total_fds == 0) {
+      break;
     }
     if (!saw_rights && total_fds > 0) {
       return absl::InternalError(absl::StrFormat(
