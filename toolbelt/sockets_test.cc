@@ -137,6 +137,105 @@ TEST(SocketsTest, UnixSocket) {
     remove(socket_name.c_str());
 }
 
+TEST(SocketsTest, UnixSocketZeroFds) {
+    char tmp[] = "/tmp/socketsXXXXXX";
+    int fd = mkstemp(tmp);
+    ASSERT_NE(-1, fd);
+    std::string socket_name = tmp;
+    close(fd);
+
+    unlink(socket_name.c_str());
+    co::CoroutineScheduler scheduler;
+
+    toolbelt::UnixSocket listener;
+    absl::Status status = listener.Bind(socket_name, true);
+    ASSERT_TRUE(status.ok());
+
+    co::Coroutine incoming(scheduler, [&listener](co::Coroutine* c) {
+        absl::StatusOr<toolbelt::UnixSocket> s = listener.Accept(c);
+        ASSERT_TRUE(s.ok());
+        auto socket = s.value();
+
+        std::vector<toolbelt::FileDescriptor> fds;
+        absl::Status s2 = socket.ReceiveFds(fds, c);
+        ASSERT_TRUE(s2.ok());
+        ASSERT_TRUE(fds.empty());
+    });
+
+    co::Coroutine outgoing(scheduler, [&socket_name](co::Coroutine* c) {
+        toolbelt::UnixSocket socket;
+        absl::Status s = socket.Connect(socket_name);
+        ASSERT_TRUE(s.ok());
+
+        std::vector<toolbelt::FileDescriptor> fds;
+        absl::Status s2 = socket.SendFds(fds, c);
+        ASSERT_TRUE(s2.ok());
+    });
+
+    scheduler.Run();
+    remove(socket_name.c_str());
+}
+
+TEST(SocketsTest, UnixSocketShortFdCountRead) {
+    char tmp[] = "/tmp/socketsXXXXXX";
+    int fd = mkstemp(tmp);
+    ASSERT_NE(-1, fd);
+    std::string socket_name = tmp;
+    close(fd);
+
+    unlink(socket_name.c_str());
+    co::CoroutineScheduler scheduler;
+
+    toolbelt::UnixSocket listener;
+    absl::Status status = listener.Bind(socket_name, true);
+    ASSERT_TRUE(status.ok());
+
+    co::Coroutine incoming(scheduler, [&listener](co::Coroutine* c) {
+        absl::StatusOr<toolbelt::UnixSocket> s = listener.Accept(c);
+        ASSERT_TRUE(s.ok());
+        auto socket = s.value();
+
+        std::vector<toolbelt::FileDescriptor> fds;
+        absl::Status s2 = socket.ReceiveFds(fds, c);
+        ASSERT_TRUE(s2.ok());
+        ASSERT_EQ(1, fds.size());
+    });
+
+    co::Coroutine outgoing(scheduler, [&socket_name](co::Coroutine* c) {
+        toolbelt::UnixSocket socket;
+        absl::Status s = socket.Connect(socket_name);
+        ASSERT_TRUE(s.ok());
+
+        int32_t num_fds = 1;
+        char* num_fds_bytes = reinterpret_cast<char*>(&num_fds);
+        int fd_to_send = dup(0);
+        ASSERT_NE(-1, fd_to_send);
+
+        char control_buf[CMSG_SPACE(sizeof(int))] = {};
+        struct iovec iov = {.iov_base = num_fds_bytes, .iov_len = 1};
+        struct msghdr msg = {.msg_iov = &iov,
+                             .msg_iovlen = 1,
+                             .msg_control = control_buf,
+                             .msg_controllen = sizeof(control_buf)};
+        struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msg);
+        cmsg->cmsg_level = SOL_SOCKET;
+        cmsg->cmsg_type = SCM_RIGHTS;
+        cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+        *reinterpret_cast<int*>(CMSG_DATA(cmsg)) = fd_to_send;
+
+        ssize_t n = sendmsg(socket.GetFileDescriptor().Fd(), &msg, 0);
+        ASSERT_EQ(1, n);
+        close(fd_to_send);
+
+        n = send(socket.GetFileDescriptor().Fd(), num_fds_bytes + 1,
+                 sizeof(num_fds) - 1, 0);
+        ASSERT_EQ(static_cast<ssize_t>(sizeof(num_fds) - 1), n);
+    });
+
+    scheduler.Run();
+    remove(socket_name.c_str());
+}
+
 TEST(SocketsTest, UnixSocketErrors) {
     toolbelt::UnixSocket socket;
     // Socket is inValid, all will fail.
