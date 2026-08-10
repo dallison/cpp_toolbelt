@@ -3,6 +3,7 @@
 #include "toolbelt/payload_buffer.h"
 #include <cstddef>
 #include <gtest/gtest.h>
+#include <limits>
 #include <sstream>
 
 using PayloadBuffer = toolbelt::PayloadBuffer;
@@ -177,6 +178,167 @@ TEST(BufferTest, SmallBlockAllocFree) {
   toolbelt::Hexdump(pb, pb->hwm);
 
   pb->~PayloadBuffer();
+  free(buffer);
+}
+
+TEST(BufferTest, PrimeBitmapAllocatorReserveFailureReclaimsVectorHeader) {
+  constexpr size_t kReserveAllocationSize =
+      8 * sizeof(BufferOffset) + sizeof(uint64_t);
+  constexpr size_t kSize = sizeof(PayloadBuffer) + kReserveAllocationSize;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
+
+  const BufferOffset initial_free_list = pb->free_list;
+  toolbelt::FreeBlockHeader *initial_free_block =
+      pb->ToAddress<toolbelt::FreeBlockHeader>(initial_free_list);
+  ASSERT_NE(nullptr, initial_free_block);
+  const uint32_t initial_free_length = initial_free_block->length;
+
+  EXPECT_FALSE(PayloadBuffer::PrimeBitmapAllocator(
+      &pb, toolbelt::kBitmapRunSize1));
+  EXPECT_EQ(0u, pb->bitmaps[0]);
+  EXPECT_EQ(initial_free_list, pb->free_list);
+  toolbelt::FreeBlockHeader *restored_free_block =
+      pb->ToAddress<toolbelt::FreeBlockHeader>(pb->free_list);
+  ASSERT_NE(nullptr, restored_free_block);
+  EXPECT_EQ(initial_free_length, restored_free_block->length);
+
+  free(buffer);
+}
+
+TEST(BufferTest, PrimeBitmapAllocatorRunFailureRollsBackInitialization) {
+  constexpr size_t kVectorHeaderAllocationSize =
+      sizeof(VectorHeader) + sizeof(uint64_t);
+  constexpr size_t kReserveAllocationSize =
+      8 * sizeof(BufferOffset) + sizeof(uint64_t);
+  constexpr size_t kSize =
+      sizeof(PayloadBuffer) + kVectorHeaderAllocationSize +
+      kReserveAllocationSize + sizeof(toolbelt::FreeBlockHeader);
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
+
+  const BufferOffset initial_free_list = pb->free_list;
+  toolbelt::FreeBlockHeader *initial_free_block =
+      pb->ToAddress<toolbelt::FreeBlockHeader>(initial_free_list);
+  ASSERT_NE(nullptr, initial_free_block);
+  const uint32_t initial_free_length = initial_free_block->length;
+
+  for (int attempt = 0; attempt < 2; attempt++) {
+    EXPECT_FALSE(PayloadBuffer::PrimeBitmapAllocator(
+        &pb, toolbelt::kBitmapRunSize1));
+    EXPECT_EQ(0u, pb->bitmaps[0]);
+    EXPECT_EQ(initial_free_list, pb->free_list);
+    toolbelt::FreeBlockHeader *restored_free_block =
+        pb->ToAddress<toolbelt::FreeBlockHeader>(pb->free_list);
+    ASSERT_NE(nullptr, restored_free_block);
+    EXPECT_EQ(initial_free_length, restored_free_block->length);
+  }
+
+  free(buffer);
+}
+
+TEST(BufferTest, LazyBitmapAllocatorRunFailureRollsBackInitialization) {
+  constexpr size_t kVectorHeaderAllocationSize =
+      sizeof(VectorHeader) + sizeof(uint64_t);
+  constexpr size_t kReserveAllocationSize =
+      8 * sizeof(BufferOffset) + sizeof(uint64_t);
+  constexpr size_t kSize =
+      sizeof(PayloadBuffer) + kVectorHeaderAllocationSize +
+      kReserveAllocationSize + sizeof(toolbelt::FreeBlockHeader);
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
+
+  const BufferOffset initial_free_list = pb->free_list;
+  toolbelt::FreeBlockHeader *initial_free_block =
+      pb->ToAddress<toolbelt::FreeBlockHeader>(initial_free_list);
+  ASSERT_NE(nullptr, initial_free_block);
+  const uint32_t initial_free_length = initial_free_block->length;
+
+  for (int attempt = 0; attempt < 2; attempt++) {
+    EXPECT_EQ(nullptr,
+              PayloadBuffer::Allocate(&pb, toolbelt::kBitmapRunSize1));
+    EXPECT_EQ(0u, pb->bitmaps[0]);
+    EXPECT_EQ(initial_free_list, pb->free_list);
+    toolbelt::FreeBlockHeader *restored_free_block =
+        pb->ToAddress<toolbelt::FreeBlockHeader>(pb->free_list);
+    ASSERT_NE(nullptr, restored_free_block);
+    EXPECT_EQ(initial_free_length, restored_free_block->length);
+  }
+
+  free(buffer);
+}
+
+TEST(BufferTest, BitmapRunGrowthFailureReclaimsUnappendedRun) {
+  constexpr size_t kSize = 8192;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
+
+  ASSERT_TRUE(
+      PayloadBuffer::PrimeBitmapAllocator(&pb, toolbelt::kBitmapRunSize1));
+  const BufferOffset bitmap_vector_offset = pb->bitmaps[0];
+  VectorHeader *hdr = pb->ToAddress<VectorHeader>(bitmap_vector_offset);
+  ASSERT_NE(nullptr, hdr);
+  const size_t bitmap_capacity =
+      PayloadBuffer::DecodedSize(pb->ToAddress<BufferOffset>(hdr->data)) /
+      sizeof(BufferOffset);
+  ASSERT_GT(bitmap_capacity, hdr->num_elements);
+
+  for (size_t i = hdr->num_elements; i < bitmap_capacity; i++) {
+    toolbelt::BitMapRun *run = PayloadBuffer::AllocateBitMapRun(
+        &pb, toolbelt::kBitmapRunSize1, toolbelt::kRunSize1);
+    ASSERT_NE(nullptr, run);
+    const BufferOffset run_offset = pb->ToOffset(run);
+    hdr = pb->ToAddress<VectorHeader>(bitmap_vector_offset);
+    ASSERT_TRUE(
+        PayloadBuffer::VectorPush<BufferOffset>(&pb, hdr, run_offset, false));
+  }
+  hdr = pb->ToAddress<VectorHeader>(bitmap_vector_offset);
+  ASSERT_EQ(bitmap_capacity, hdr->num_elements);
+  const BufferOffset bitmap_data_offset = hdr->data;
+  for (size_t i = 0; i < hdr->num_elements; i++) {
+    toolbelt::BitMapRun *run =
+        pb->ToAddress<toolbelt::BitMapRun>(pb->VectorGet<BufferOffset>(hdr, i));
+    ASSERT_NE(nullptr, run);
+    run->bits = run->num == 32 ? std::numeric_limits<uint32_t>::max()
+                               : (uint32_t{1} << run->num) - 1;
+    run->free = 0;
+  }
+
+  toolbelt::BitMapRun *probe_run = PayloadBuffer::AllocateBitMapRun(
+      &pb, toolbelt::kBitmapRunSize1, toolbelt::kRunSize1);
+  ASSERT_NE(nullptr, probe_run);
+  const size_t run_allocation_size =
+      PayloadBuffer::DecodedSize(reinterpret_cast<BufferOffset *>(probe_run)) +
+      sizeof(uint64_t);
+  pb->Free(probe_run);
+
+  toolbelt::FreeBlockHeader *free_block = pb->FreeList();
+  ASSERT_NE(nullptr, free_block);
+  ASSERT_EQ(0u, free_block->next);
+  ASSERT_GT(free_block->length, run_allocation_size + sizeof(uint64_t));
+  const size_t drain_size =
+      free_block->length - run_allocation_size - sizeof(uint64_t);
+  ASSERT_EQ(0u, drain_size % sizeof(uint64_t));
+  ASSERT_NE(nullptr, PayloadBuffer::Allocate(&pb, drain_size, false, false));
+
+  const BufferOffset initial_free_list = pb->free_list;
+  free_block = pb->FreeList();
+  ASSERT_NE(nullptr, free_block);
+  ASSERT_EQ(run_allocation_size, free_block->length);
+
+  for (int attempt = 0; attempt < 2; attempt++) {
+    EXPECT_EQ(nullptr,
+              PayloadBuffer::Allocate(&pb, toolbelt::kBitmapRunSize1));
+    hdr = pb->ToAddress<VectorHeader>(bitmap_vector_offset);
+    ASSERT_NE(nullptr, hdr);
+    EXPECT_EQ(bitmap_capacity, hdr->num_elements);
+    EXPECT_EQ(bitmap_data_offset, hdr->data);
+    EXPECT_EQ(initial_free_list, pb->free_list);
+    free_block = pb->FreeList();
+    ASSERT_NE(nullptr, free_block);
+    EXPECT_EQ(run_allocation_size, free_block->length);
+  }
+
   free(buffer);
 }
 
@@ -618,6 +780,145 @@ TEST(BufferTest, VectorResizeWithResize) {
   free(buffer);
 }
 
+TEST(BufferTest, EmptyVectorZeroSizeOperationsSucceed) {
+  constexpr size_t kSize = 256;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize, false);
+
+  ASSERT_NE(nullptr,
+            PayloadBuffer::AllocateMainMessage(&pb, sizeof(VectorHeader)));
+  VectorHeader *hdr = pb->ToAddress<VectorHeader>(pb->message);
+
+  EXPECT_TRUE(PayloadBuffer::VectorReserve<uint32_t>(&pb, hdr, 0, false));
+  EXPECT_TRUE(PayloadBuffer::VectorResize<uint32_t>(&pb, hdr, 0));
+  EXPECT_EQ(0u, hdr->data);
+  EXPECT_EQ(0u, hdr->num_elements);
+
+  free(buffer);
+}
+
+TEST(BufferTest, VectorPushFixedBufferAllocationFailurePreservesHeader) {
+  constexpr size_t kSize = 256;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize, false);
+
+  ASSERT_NE(nullptr,
+            PayloadBuffer::AllocateMainMessage(&pb, sizeof(VectorHeader)));
+  const BufferOffset msg_offset = pb->message;
+  VectorHeader *hdr = pb->ToAddress<VectorHeader>(msg_offset);
+
+  toolbelt::FreeBlockHeader *free_block =
+      pb->ToAddress<toolbelt::FreeBlockHeader>(pb->free_list);
+  ASSERT_NE(nullptr, free_block);
+  ASSERT_NE(nullptr,
+            PayloadBuffer::Allocate(&pb, free_block->length - sizeof(uint64_t),
+                                    false, false));
+  ASSERT_EQ(0u, pb->free_list);
+
+  EXPECT_FALSE(
+      PayloadBuffer::VectorPush<uint32_t>(&pb, hdr, 0x12345678, false));
+  hdr = pb->ToAddress<VectorHeader>(msg_offset);
+  EXPECT_EQ(0u, hdr->data);
+  EXPECT_EQ(0u, hdr->num_elements);
+
+  free(buffer);
+}
+
+TEST(BufferTest, VectorPushFixedBufferGrowthFailurePreservesHeader) {
+  constexpr size_t kSize = 256;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize, false);
+
+  ASSERT_NE(nullptr,
+            PayloadBuffer::AllocateMainMessage(&pb, sizeof(VectorHeader)));
+  const BufferOffset msg_offset = pb->message;
+  VectorHeader *hdr = pb->ToAddress<VectorHeader>(msg_offset);
+  ASSERT_TRUE(
+      PayloadBuffer::VectorPush<uint32_t>(&pb, hdr, 0x12345678, false));
+  ASSERT_TRUE(
+      PayloadBuffer::VectorPush<uint32_t>(&pb, hdr, 0x9abcdef0, false));
+
+  hdr = pb->ToAddress<VectorHeader>(msg_offset);
+  const BufferOffset original_data = hdr->data;
+  toolbelt::FreeBlockHeader *free_block =
+      pb->ToAddress<toolbelt::FreeBlockHeader>(pb->free_list);
+  ASSERT_NE(nullptr, free_block);
+  ASSERT_NE(nullptr,
+            PayloadBuffer::Allocate(&pb, free_block->length - sizeof(uint64_t),
+                                    false, false));
+  ASSERT_EQ(0u, pb->free_list);
+
+  EXPECT_FALSE(
+      PayloadBuffer::VectorPush<uint32_t>(&pb, hdr, 0xdeadbeef, false));
+  hdr = pb->ToAddress<VectorHeader>(msg_offset);
+  EXPECT_EQ(original_data, hdr->data);
+  ASSERT_EQ(2u, hdr->num_elements);
+  EXPECT_EQ(0x12345678u, pb->VectorGet<uint32_t>(hdr, 0));
+  EXPECT_EQ(0x9abcdef0u, pb->VectorGet<uint32_t>(hdr, 1));
+
+  free(buffer);
+}
+
+TEST(BufferTest, VectorReserveFixedBufferFailurePreservesHeader) {
+  constexpr size_t kSize = 256;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize, false);
+
+  ASSERT_NE(nullptr,
+            PayloadBuffer::AllocateMainMessage(&pb, sizeof(VectorHeader)));
+  const BufferOffset msg_offset = pb->message;
+  VectorHeader *hdr = pb->ToAddress<VectorHeader>(msg_offset);
+
+  EXPECT_FALSE(PayloadBuffer::VectorReserve<uint32_t>(&pb, hdr, kSize, false));
+  EXPECT_EQ(0u, hdr->data);
+  EXPECT_EQ(0u, hdr->num_elements);
+
+  ASSERT_TRUE(
+      PayloadBuffer::VectorPush<uint32_t>(&pb, hdr, 0x12345678, false));
+  hdr = pb->ToAddress<VectorHeader>(msg_offset);
+  const BufferOffset original_data = hdr->data;
+
+  EXPECT_FALSE(PayloadBuffer::VectorReserve<uint32_t>(&pb, hdr, kSize, false));
+  hdr = pb->ToAddress<VectorHeader>(msg_offset);
+  EXPECT_EQ(original_data, hdr->data);
+  ASSERT_EQ(1u, hdr->num_elements);
+  EXPECT_EQ(0x12345678u, pb->VectorGet<uint32_t>(hdr, 0));
+
+  free(buffer);
+}
+
+TEST(BufferTest, VectorResizeFixedBufferFailurePreservesHeader) {
+  constexpr size_t kSize = 256;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize, false);
+
+  ASSERT_NE(nullptr,
+            PayloadBuffer::AllocateMainMessage(&pb, sizeof(VectorHeader)));
+  const BufferOffset msg_offset = pb->message;
+  VectorHeader *hdr = pb->ToAddress<VectorHeader>(msg_offset);
+
+  EXPECT_FALSE(PayloadBuffer::VectorResize<uint32_t>(&pb, hdr, kSize));
+  EXPECT_EQ(0u, hdr->data);
+  EXPECT_EQ(0u, hdr->num_elements);
+
+  ASSERT_TRUE(PayloadBuffer::VectorResize<uint32_t>(&pb, hdr, 2));
+  hdr = pb->ToAddress<VectorHeader>(msg_offset);
+  const BufferOffset original_data = hdr->data;
+  uint32_t *values = pb->ToAddress<uint32_t>(original_data, 2 * sizeof(uint32_t));
+  ASSERT_NE(nullptr, values);
+  values[0] = 0x12345678;
+  values[1] = 0x9abcdef0;
+
+  EXPECT_FALSE(PayloadBuffer::VectorResize<uint32_t>(&pb, hdr, kSize));
+  hdr = pb->ToAddress<VectorHeader>(msg_offset);
+  EXPECT_EQ(original_data, hdr->data);
+  ASSERT_EQ(2u, hdr->num_elements);
+  EXPECT_EQ(0x12345678u, pb->VectorGet<uint32_t>(hdr, 0));
+  EXPECT_EQ(0x9abcdef0u, pb->VectorGet<uint32_t>(hdr, 1));
+
+  free(buffer);
+}
+
 TEST(BufferTest, Resizeable) {
   char *buffer = (char *)calloc(1, 512);
   bool resized = false;
@@ -666,6 +967,321 @@ TEST(BufferTest, Resizeable) {
   // than calling operator delete (which would be an alloc-dealloc mismatch).
   pb->~PayloadBuffer();
   free(pb);
+}
+
+TEST(BufferTest, ToAddressRejectsTypedReadPastEnd) {
+  constexpr size_t kSize = 4096;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
+
+  EXPECT_EQ(pb->ToAddress<uint32_t>(kSize - 2), nullptr);
+  EXPECT_NE(pb->ToAddress<uint32_t>(kSize - sizeof(uint32_t)), nullptr);
+
+  free(buffer);
+}
+
+TEST(BufferTest, StringHelpersRejectLengthHeaderPastEnd) {
+  constexpr size_t kSize = 4093;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
+
+  toolbelt::StringHeader header = static_cast<BufferOffset>(4092);
+
+  EXPECT_EQ(pb->StringSize(&header), 0u);
+  EXPECT_EQ(pb->GetString(&header), "");
+
+  free(buffer);
+}
+
+TEST(BufferTest, StringSizeRejectsBodyPastEnd) {
+  constexpr size_t kSize = 4096;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
+
+  toolbelt::StringHeader header =
+      static_cast<BufferOffset>(kSize - sizeof(uint32_t));
+  uint32_t declared = 1;
+  memcpy(buffer + header, &declared, sizeof(declared));
+
+  EXPECT_EQ(pb->StringData(&header), nullptr);
+  EXPECT_EQ(pb->StringSize(&header), 0u);
+
+  free(buffer);
+}
+
+TEST(BufferTest, EmptyStringAtBufferTailAccepted) {
+  constexpr size_t kSize = 4096;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
+
+  toolbelt::StringHeader header =
+      static_cast<BufferOffset>(kSize - sizeof(uint32_t));
+  uint32_t declared = 0;
+  memcpy(buffer + header, &declared, sizeof(declared));
+
+  EXPECT_NE(pb->StringData(&header), nullptr);
+  EXPECT_EQ(pb->StringSize(&header), 0u);
+  EXPECT_EQ(pb->GetString(&header), "");
+  EXPECT_EQ(pb->GetStringView(&header), "");
+
+  free(buffer);
+}
+
+TEST(BufferTest, StringWithinBoundsAcceptsValidString) {
+  char *buffer = (char *)calloc(4096, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
+
+  PayloadBuffer::AllocateMainMessage(&pb, 32);
+  BufferOffset offset = pb->ToOffset(pb->ToAddress(pb->message));
+  PayloadBuffer::SetString(&pb, std::string("foobar"), offset);
+
+  EXPECT_TRUE(pb->StringWithinBounds(offset));
+
+  free(buffer);
+}
+
+TEST(BufferTest, StringWithinBoundsAcceptsUnsetString) {
+  char *buffer = (char *)calloc(4096, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
+
+  PayloadBuffer::AllocateMainMessage(&pb, sizeof(BufferOffset));
+
+  EXPECT_TRUE(pb->StringWithinBounds(pb->message));
+
+  free(buffer);
+}
+
+TEST(BufferTest, SetStringFixedBufferFailurePreservesHeader) {
+  constexpr uint32_t kBufferSize = 4096;
+  char *buffer = (char *)calloc(kBufferSize, 1);
+  PayloadBuffer *pb =
+      new (buffer) PayloadBuffer(kBufferSize, /*bitmap_allocator=*/false);
+  PayloadBuffer::AllocateMainMessage(&pb, sizeof(toolbelt::StringHeader));
+
+  const uint32_t free_len = pb->FreeList()->length;
+  constexpr uint32_t kRemainingBytes = 2 * sizeof(uint64_t);
+  ASSERT_GT(free_len, kRemainingBytes + sizeof(uint64_t));
+  const uint32_t drain = free_len - kRemainingBytes - sizeof(uint64_t);
+  ASSERT_NE(PayloadBuffer::Allocate(&pb, drain), nullptr);
+
+  EXPECT_EQ(PayloadBuffer::SetString(&pb, "too large", pb->message), nullptr);
+  EXPECT_EQ(*pb->ToAddress<toolbelt::StringHeader>(pb->message),
+            BufferOffset(0));
+  EXPECT_TRUE(PayloadBuffer::AllocateString(&pb, 9, pb->message).empty());
+  EXPECT_EQ(*pb->ToAddress<toolbelt::StringHeader>(pb->message),
+            BufferOffset(0));
+
+  free(buffer);
+}
+
+TEST(BufferTest, StringReallocFixedBufferFailurePreservesValue) {
+  constexpr uint32_t kBufferSize = 4096;
+  char *buffer = (char *)calloc(kBufferSize, 1);
+  PayloadBuffer *pb =
+      new (buffer) PayloadBuffer(kBufferSize, /*bitmap_allocator=*/false);
+  PayloadBuffer::AllocateMainMessage(&pb, sizeof(toolbelt::StringHeader));
+  ASSERT_NE(PayloadBuffer::SetString(&pb, "x", pb->message), nullptr);
+
+  const BufferOffset original_offset =
+      *pb->ToAddress<toolbelt::StringHeader>(pb->message);
+  ASSERT_NE(original_offset, BufferOffset(0));
+
+  const uint32_t free_len = pb->FreeList()->length;
+  constexpr uint32_t kRemainingBytes = 2 * sizeof(uint64_t);
+  ASSERT_GT(free_len, kRemainingBytes + sizeof(uint64_t));
+  const uint32_t drain = free_len - kRemainingBytes - sizeof(uint64_t);
+  ASSERT_NE(PayloadBuffer::Allocate(&pb, drain), nullptr);
+
+  EXPECT_EQ(PayloadBuffer::SetString(&pb, "too large", pb->message), nullptr);
+  EXPECT_EQ(*pb->ToAddress<toolbelt::StringHeader>(pb->message),
+            original_offset);
+  EXPECT_EQ(pb->GetString(pb->ToAddress<toolbelt::StringHeader>(pb->message)),
+            "x");
+  EXPECT_TRUE(PayloadBuffer::AllocateString(&pb, 9, pb->message).empty());
+  EXPECT_EQ(*pb->ToAddress<toolbelt::StringHeader>(pb->message),
+            original_offset);
+  EXPECT_EQ(pb->GetString(pb->ToAddress<toolbelt::StringHeader>(pb->message)),
+            "x");
+
+  free(buffer);
+}
+
+TEST(BufferTest, StringWithinBoundsRejectsNullHeader) {
+  char *buffer = (char *)calloc(4096, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
+
+  EXPECT_FALSE(
+      pb->StringWithinBounds(static_cast<const toolbelt::StringHeader *>(nullptr)));
+
+  free(buffer);
+}
+
+TEST(BufferTest, StringReadersReturnEmptyForNullHeader) {
+  char *buffer = (char *)calloc(4096, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
+
+  const toolbelt::StringHeader *header = nullptr;
+
+  EXPECT_EQ(pb->GetString(header), "");
+  EXPECT_EQ(pb->GetStringView(header), "");
+  EXPECT_EQ(pb->StringSize(header), 0u);
+  EXPECT_EQ(pb->StringData(header), nullptr);
+
+  free(buffer);
+}
+
+TEST(BufferTest, StringReadersRejectHeaderOffsetPastEnd) {
+  constexpr size_t kSize = 4096;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
+
+  const BufferOffset straddling = static_cast<BufferOffset>(kSize - 2);
+
+  EXPECT_EQ(pb->GetString(straddling), "");
+  EXPECT_EQ(pb->GetStringView(straddling), "");
+  EXPECT_EQ(pb->StringSize(straddling), 0u);
+  EXPECT_EQ(pb->StringData(straddling), nullptr);
+
+  const BufferOffset unset = static_cast<BufferOffset>(0);
+
+  EXPECT_EQ(pb->GetString(unset), "");
+  EXPECT_EQ(pb->GetStringView(unset), "");
+  EXPECT_EQ(pb->StringSize(unset), 0u);
+  EXPECT_EQ(pb->StringData(unset), nullptr);
+
+  free(buffer);
+}
+
+TEST(BufferTest, StringWritersRejectHeaderOffsetPastEnd) {
+  constexpr size_t kSize = 4096;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb =
+      new (buffer) PayloadBuffer(kSize, /*bitmap_allocator=*/false);
+  const uint32_t free_len = pb->FreeList()->length;
+
+  const BufferOffset straddling = static_cast<BufferOffset>(kSize - 2);
+
+  EXPECT_EQ(PayloadBuffer::SetString(&pb, "x", 1, straddling), nullptr);
+  EXPECT_TRUE(PayloadBuffer::AllocateString(&pb, 1, straddling).empty());
+  PayloadBuffer::ClearString(&pb, straddling);
+
+  const BufferOffset unset = static_cast<BufferOffset>(0);
+
+  EXPECT_EQ(PayloadBuffer::SetString(&pb, "x", 1, unset), nullptr);
+  EXPECT_TRUE(PayloadBuffer::AllocateString(&pb, 1, unset).empty());
+  PayloadBuffer::ClearString(&pb, unset);
+
+  EXPECT_EQ(pb->FreeList()->length, free_len);
+
+  free(buffer);
+}
+
+TEST(BufferTest, AllocateStringReturnsWritableSpanAndStoresOffset) {
+  constexpr size_t kSize = 4096;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb =
+      new (buffer) PayloadBuffer(kSize, /*bitmap_allocator=*/false);
+  PayloadBuffer::AllocateMainMessage(&pb, sizeof(toolbelt::StringHeader));
+
+  absl::Span<char> str = PayloadBuffer::AllocateString(&pb, 3, pb->message);
+  ASSERT_EQ(str.size(), 3u);
+  EXPECT_NE(*pb->ToAddress<toolbelt::StringHeader>(pb->message),
+            BufferOffset(0));
+
+  memcpy(str.data(), "abc", 3);
+  EXPECT_EQ(pb->GetString(pb->message), "abc");
+
+  absl::Span<char> grown = PayloadBuffer::AllocateString(&pb, 5, pb->message);
+  ASSERT_EQ(grown.size(), 5u);
+
+  memcpy(grown.data(), "abcde", 5);
+  EXPECT_EQ(pb->GetString(pb->message), "abcde");
+
+  free(buffer);
+}
+
+TEST(BufferTest, StringWithinBoundsRejectsBodyOffsetPastEnd) {
+  constexpr size_t kSize = 4096;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
+
+  toolbelt::StringHeader header = static_cast<BufferOffset>(kSize - 2);
+
+  EXPECT_FALSE(pb->StringWithinBounds(&header));
+
+  free(buffer);
+}
+
+TEST(BufferTest, StringWithinBoundsRejectsBodyPastEnd) {
+  constexpr size_t kSize = 4096;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
+
+  toolbelt::StringHeader header =
+      static_cast<BufferOffset>(kSize - sizeof(uint32_t));
+  uint32_t declared = 1;
+  memcpy(buffer + header, &declared, sizeof(declared));
+
+  EXPECT_FALSE(pb->StringWithinBounds(&header));
+
+  free(buffer);
+}
+
+TEST(BufferTest, VectorGetRejectsIndexPastEnd) {
+  constexpr size_t kSize = 4096;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
+
+  VectorHeader hdr;
+  hdr.num_elements = 2;
+  hdr.data = static_cast<BufferOffset>(kSize - sizeof(uint32_t));
+
+  EXPECT_EQ(pb->VectorGet<uint32_t>(&hdr, 1), 0u);
+
+  free(buffer);
+}
+
+TEST(BufferTest, ToOffsetAndToAddressAgreeOnTrailingExtent) {
+  constexpr size_t kSize = 4096;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
+
+  uint32_t *p =
+      reinterpret_cast<uint32_t *>(reinterpret_cast<char *>(pb) + (kSize - 2));
+
+  EXPECT_EQ(pb->ToAddress<uint32_t>(kSize - 2), nullptr);
+  EXPECT_EQ(pb->ToOffset(p), 0u);
+
+  free(buffer);
+}
+
+TEST(BufferTest, ToAddressVoidStartOnlyBoundary) {
+  constexpr size_t kSize = 4096;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
+
+  EXPECT_NE(pb->ToAddress<void>(kSize - 1), nullptr);
+  EXPECT_EQ(pb->ToAddress<void>(kSize), nullptr);
+
+  free(buffer);
+}
+
+TEST(BufferTest, ToAddressAndToOffsetRejectOutOfRangeInputs) {
+  constexpr size_t kSize = 4096;
+  char *buffer = (char *)calloc(kSize, 1);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
+  char *other_buffer = (char *)calloc(kSize, 1);
+
+  const BufferOffset far_offset = std::numeric_limits<BufferOffset>::max();
+  EXPECT_EQ(pb->ToAddress<uint32_t>(far_offset), nullptr);
+  EXPECT_EQ(pb->ToAddress<void>(far_offset), nullptr);
+
+  const uint32_t *foreign_address =
+      reinterpret_cast<const uint32_t *>(other_buffer);
+  EXPECT_EQ(pb->ToOffset(foreign_address), 0u);
+
+  free(other_buffer);
+  free(buffer);
 }
 
 int main(int argc, char **argv) {

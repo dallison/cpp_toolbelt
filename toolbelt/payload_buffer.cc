@@ -53,6 +53,9 @@ char *PayloadBuffer::SetString(PayloadBuffer **self, const char *s, size_t len,
                                BufferOffset header_offset) {
   // Get address of the string header
   BufferOffset *hdr = (*self)->ToAddress<BufferOffset>(header_offset);
+  if (hdr == nullptr) {
+    return nullptr;
+  }
   void *str = nullptr;
 
   // Load the pointer and convert to address.
@@ -66,6 +69,9 @@ char *PayloadBuffer::SetString(PayloadBuffer **self, const char *s, size_t len,
   } else {
     str = Allocate(self, len + 4, 4, false);
   }
+  if (str == nullptr) {
+    return nullptr;
+  }
   uint32_t *p = reinterpret_cast<uint32_t *>(str);
   p[0] = uint32_t(len);
   memcpy(p + 1, s, len);
@@ -73,6 +79,10 @@ char *PayloadBuffer::SetString(PayloadBuffer **self, const char *s, size_t len,
   // The buffer may have moved.  Reassign the address of the string
   // back into the header.
   BufferOffset *oldp = (*self)->ToAddress<BufferOffset>(header_offset);
+  if (oldp == nullptr) {
+    (*self)->Free(str);
+    return nullptr;
+  }
   *oldp = (*self)->ToOffset(str);
   return reinterpret_cast<char *>(str);
 }
@@ -80,6 +90,9 @@ char *PayloadBuffer::SetString(PayloadBuffer **self, const char *s, size_t len,
 void PayloadBuffer::ClearString(PayloadBuffer **self,
                                 BufferOffset header_offset) {
   BufferOffset *hdr = (*self)->ToAddress<BufferOffset>(header_offset);
+  if (hdr == nullptr) {
+    return;
+  }
   if (*hdr != 0) {
     (*self)->Free((*self)->ToAddress(*hdr));
     // Free doesn't move the buffer so the address is still valid.
@@ -89,35 +102,59 @@ void PayloadBuffer::ClearString(PayloadBuffer **self,
 
 // 'addr' is the address of the pointer to the string data.
 std::string PayloadBuffer::GetString(const StringHeader *addr) const {
-  const uint32_t *p = reinterpret_cast<const uint32_t *>(ToAddress(*addr));
-  if (p == nullptr) {
+  if (addr == nullptr) {
+    return "";
+  }
+  const uint32_t *p = ToAddress<uint32_t>(*addr);
+  if (p == nullptr || (*p > 0 && !IsValidAddress(p + 1, *p))) {
     return "";
   }
   return std::string(reinterpret_cast<const char *>(p + 1), *p);
 }
 
 std::string_view PayloadBuffer::GetStringView(const StringHeader *addr) const {
-  const uint32_t *p = reinterpret_cast<const uint32_t *>(ToAddress(*addr));
-  if (p == nullptr) {
+  if (addr == nullptr) {
+    return "";
+  }
+  const uint32_t *p = ToAddress<uint32_t>(*addr);
+  if (p == nullptr || (*p > 0 && !IsValidAddress(p + 1, *p))) {
     return "";
   }
   return std::string_view(reinterpret_cast<const char *>(p + 1), *p);
 }
 
 size_t PayloadBuffer::StringSize(const StringHeader *addr) const {
-  const uint32_t *p = reinterpret_cast<const uint32_t *>(ToAddress(*addr));
-  if (p == nullptr) {
+  if (addr == nullptr) {
+    return 0;
+  }
+  const uint32_t *p = ToAddress<uint32_t>(*addr);
+  if (p == nullptr || (*p > 0 && !IsValidAddress(p + 1, *p))) {
     return 0;
   }
   return size_t(*p);
 }
 
 const char *PayloadBuffer::StringData(const StringHeader *addr) const {
-  const uint32_t *p = reinterpret_cast<const uint32_t *>(ToAddress(*addr));
-  if (p == nullptr) {
+  if (addr == nullptr) {
+    return nullptr;
+  }
+  const uint32_t *p = ToAddress<uint32_t>(*addr);
+  if (p == nullptr || (*p > 0 && !IsValidAddress(p + 1, *p))) {
     return nullptr;
   }
   return reinterpret_cast<const char *>(p + 1);
+}
+
+bool PayloadBuffer::StringWithinBounds(const StringHeader *addr) const {
+  if (addr == nullptr) {
+    return false;
+  }
+  // An unset string has a zero body offset and serializes as empty.
+  if (*addr == 0) {
+    return true;
+  }
+  const uint32_t *p = ToAddress<uint32_t>(*addr);
+  return p != nullptr && (*p == 0 || IsValidAddress(p + 1, *p));
 }
 
 absl::Span<char> PayloadBuffer::AllocateString(PayloadBuffer **self, size_t len,
@@ -125,6 +162,9 @@ absl::Span<char> PayloadBuffer::AllocateString(PayloadBuffer **self, size_t len,
                                                bool clear) {
   // Get address of the string header
   BufferOffset *hdr = (*self)->ToAddress<BufferOffset>(header_offset);
+  if (hdr == nullptr) {
+    return {};
+  }
   void *str = nullptr;
 
   // Load the pointer and convert to address.
@@ -138,12 +178,19 @@ absl::Span<char> PayloadBuffer::AllocateString(PayloadBuffer **self, size_t len,
   } else {
     str = Allocate(self, len + 4, 4, clear);
   }
+  if (str == nullptr) {
+    return {};
+  }
   uint32_t *p = reinterpret_cast<uint32_t *>(str);
   p[0] = uint32_t(len);
 
   // The buffer may have moved.  Reassign the address of the string
   // back into the header.
   BufferOffset *oldp = (*self)->ToAddress<BufferOffset>(header_offset);
+  if (oldp == nullptr) {
+    (*self)->Free(str);
+    return {};
+  }
   *oldp = (*self)->ToOffset(str);
   // The span returned is the string data, not the address of the length.
   return absl::Span<char>(reinterpret_cast<char *>(str) + 4, len);
@@ -679,6 +726,37 @@ void *PayloadBuffer::Realloc(PayloadBuffer **buffer, void *p, uint32_t n,
   (*buffer)->Free(p);
   return newp;
 }
+
+static bool InitializeBitMapRunVector(PayloadBuffer **self, int index,
+                                      uint32_t size, uint32_t num) {
+  BufferOffset offset = (*self)->AllocateBitMapRunVector(self);
+  if (offset == 0) {
+    return false;
+  }
+  auto free_bitmap_vector = [self, offset]() {
+    VectorHeader *hdr = (*self)->ToAddress<VectorHeader>(offset);
+    PayloadBuffer::VectorClear<BufferOffset>(self, hdr);
+    (*self)->Free((*self)->ToAddress<void>(offset));
+  };
+
+  BitMapRun *run = PayloadBuffer::AllocateBitMapRun(self, size, num);
+  if (run == nullptr) {
+    free_bitmap_vector();
+    return false;
+  }
+
+  // Re-derive hdr since AllocateBitMapRun may have triggered a buffer resize.
+  VectorHeader *hdr = (*self)->ToAddress<VectorHeader>(offset);
+  BufferOffset run_offset = (*self)->ToOffset(run);
+  if (!(*self)->VectorPush<BufferOffset>(self, hdr, run_offset, false)) {
+    (*self)->Free((*self)->ToAddress<void>(run_offset));
+    free_bitmap_vector();
+    return false;
+  }
+  (*self)->bitmaps[index] = offset;
+  return true;
+}
+
 bool PayloadBuffer::PrimeBitmapAllocator(PayloadBuffer **self, size_t size) {
   int index = BitmapRunIndex(size);
   if (index < 0) {
@@ -687,21 +765,8 @@ bool PayloadBuffer::PrimeBitmapAllocator(PayloadBuffer **self, size_t size) {
   if ((*self)->bitmaps[index] != 0) {
     return true;
   }
-  BufferOffset offset = (*self)->AllocateBitMapRunVector(self);
-  if (offset == 0) {
-    return false;
-  }
-  (*self)->bitmaps[index] = offset;
-
-  BitMapRun *run = PayloadBuffer::AllocateBitMapRun(
-      self, bitmp_run_infos[index].size, bitmp_run_infos[index].num);
-  if (run == nullptr) {
-    return false;
-  }
-  // Re-derive hdr since AllocateBitMapRun may have triggered a buffer resize.
-  VectorHeader *hdr = (*self)->ToAddress<VectorHeader>((*self)->bitmaps[index]);
-  (*self)->VectorPush<BufferOffset>(self, hdr, (*self)->ToOffset(run), false);
-  return true;
+  return InitializeBitMapRunVector(self, index, bitmp_run_infos[index].size,
+                                  bitmp_run_infos[index].num);
 }
 
 BufferOffset PayloadBuffer::AllocateBitMapRunVector(PayloadBuffer **self) {
@@ -714,8 +779,11 @@ BufferOffset PayloadBuffer::AllocateBitMapRunVector(PayloadBuffer **self) {
   BufferOffset hdr_offset = (*self)->ToOffset(hdr);
 
   // Preallocate space for 8 elements.
-  VectorReserve<BufferOffset>(self, reinterpret_cast<VectorHeader *>(hdr), 8,
-                              false);
+  if (!VectorReserve<BufferOffset>(self, reinterpret_cast<VectorHeader *>(hdr),
+                                   8, false)) {
+    (*self)->Free((*self)->ToAddress<void>(hdr_offset));
+    return 0;
+  }
   return hdr_offset;
 }
 
@@ -741,11 +809,9 @@ void *BitMapRun::Allocate(PayloadBuffer **pb, int index, uint32_t, int size,
                           int num, bool clear) {
   // Lazy init of vector.
   if ((*pb)->bitmaps[index] == 0) {
-    BufferOffset offset = (*pb)->AllocateBitMapRunVector(pb);
-    if (offset == 0) {
+    if (!InitializeBitMapRunVector(pb, index, size, num)) {
       return nullptr;
     }
-    (*pb)->bitmaps[index] = offset;
   }
   for (;;) {
     // Re-derive hdr each iteration since allocations below may trigger a
@@ -791,7 +857,11 @@ void *BitMapRun::Allocate(PayloadBuffer **pb, int index, uint32_t, int size,
     // Re-derive hdr since AllocateBitMapRun may have triggered a buffer
     // resize, invalidating the previous pointer.
     hdr = (*pb)->ToAddress<VectorHeader>((*pb)->bitmaps[index]);
-    (*pb)->VectorPush<BufferOffset>(pb, hdr, (*pb)->ToOffset(run), false);
+    BufferOffset run_offset = (*pb)->ToOffset(run);
+    if (!(*pb)->VectorPush<BufferOffset>(pb, hdr, run_offset, false)) {
+      (*pb)->Free((*pb)->ToAddress<void>(run_offset));
+      return nullptr;
+    }
   }
 }
 
