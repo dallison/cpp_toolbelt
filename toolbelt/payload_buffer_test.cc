@@ -425,6 +425,34 @@ TEST(BufferTest, String) {
   free(buffer);
 }
 
+TEST(BufferTest, HostileStringLengthIsClamped) {
+  char *buffer = (char *)calloc(1, 4096);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
+  PayloadBuffer::AllocateMainMessage(&pb, 32);
+  BufferOffset offset = pb->message;
+  PayloadBuffer::SetString(&pb, std::string("hello"), offset);
+
+  const size_t received_size = pb->hwm;
+
+  // Corrupt the stored length to a huge value, simulating a hostile payload.
+  BufferOffset data_off = *pb->ToAddress<BufferOffset>(offset);
+  uint32_t *len = pb->ToAddress<uint32_t>(data_off);
+  *len = 0xffffffffu;
+
+  // A size-aware read clamps the length to what actually fits in the received
+  // buffer, so it never reads out of bounds (ASan would flag a violation).
+  std::string_view sv = pb->GetStringView(offset, received_size);
+  ASSERT_LE(sv.size(), received_size);
+  ASSERT_EQ(0, sv.compare(0, 5, "hello"));
+
+  // Inflating full_size must not expand what a size-aware read will accept.
+  pb->full_size = 0xffffffffu;
+  std::string_view sv2 = pb->GetStringView(offset, received_size);
+  ASSERT_LE(sv2.size(), received_size);
+  ASSERT_EQ(0, sv2.compare(0, 5, "hello"));
+  free(buffer);
+}
+
 TEST(BufferTest, Vector) {
   char *buffer = (char *)calloc(1, 4096);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
