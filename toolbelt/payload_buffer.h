@@ -10,6 +10,7 @@
 #include <string.h>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 namespace toolbelt {
@@ -362,7 +363,13 @@ struct PayloadBuffer {
     return (magic & kBitMapMask) == kMovableBufferMagic;
   }
 
-  bool IsValidAddress(const void *addr, size_t size) const {
+  // Returns true if [addr, addr + nbytes) lies entirely within the first
+  // 'size' bytes of this buffer (or full_size when size == 0).
+  bool IsValidAddress(const void *addr, size_t size,
+                      size_t nbytes = 1) const {
+    if (nbytes == 0) {
+      return false;
+    }
     if (size == 0) {
       size = full_size;
     }
@@ -373,7 +380,13 @@ struct PayloadBuffer {
     }
     // Compute the offset without forming an out-of-range end pointer (which
     // would be undefined behavior for a hostile 'size').
-    return static_cast<size_t>(a - base) < size;
+    const size_t off = static_cast<size_t>(a - base);
+    if (off >= size) {
+      return false;
+    }
+    // Require the full object (nbytes) to fit; start-only checks let a
+    // uint32_t length word at size-1 through and then heap-overflow on read.
+    return nbytes <= size - off;
   }
 
   // Given the address of a block, return the size of the block.  This is
@@ -395,9 +408,12 @@ struct PayloadBuffer {
     if (!IsValidMagic()) {
       return nullptr;
     }
-    // Validate that we don't go outside the buffer.
+    // void* probes a single byte; typed pointers must fit sizeof(T).
+    // Use conditional_t so sizeof(void) is never evaluated.
+    constexpr size_t kN =
+        sizeof(typename std::conditional<std::is_void<T>::value, char, T>::type);
     char *addr = reinterpret_cast<char *>(this) + offset;
-    if (!IsValidAddress(addr, size)) {
+    if (!IsValidAddress(addr, size, kN)) {
       return nullptr;
     }
 
@@ -411,7 +427,9 @@ struct PayloadBuffer {
     if (!IsValidMagic()) {
       return 0;
     }
-    if (!IsValidAddress(addr, size)) {
+    constexpr size_t kN =
+        sizeof(typename std::conditional<std::is_void<T>::value, char, T>::type);
+    if (!IsValidAddress(addr, size, kN)) {
       return 0;
     }
     return reinterpret_cast<const char *>(addr) -
@@ -426,14 +444,14 @@ struct PayloadBuffer {
     if (!IsValidMagic()) {
       return nullptr;
     }
-    // Validate that we don't go outside the buffer.
+    constexpr size_t kN =
+        sizeof(typename std::conditional<std::is_void<T>::value, char, T>::type);
     const char *addr = reinterpret_cast<const char *>(this) + offset;
-    if (!IsValidAddress(addr, size)) {
+    if (!IsValidAddress(addr, size, kN)) {
       return nullptr;
     }
 
-    return reinterpret_cast<const T *>(reinterpret_cast<const char *>(this) +
-                                       offset);
+    return reinterpret_cast<const T *>(addr);
   }
 
   template <typename T = void>
@@ -444,7 +462,9 @@ struct PayloadBuffer {
     if (!IsValidMagic()) {
       return 0;
     }
-    if (!IsValidAddress(addr, size)) {
+    constexpr size_t kN =
+        sizeof(typename std::conditional<std::is_void<T>::value, char, T>::type);
+    if (!IsValidAddress(addr, size, kN)) {
       return 0;
     }
     return reinterpret_cast<const char *>(addr) -
