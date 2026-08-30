@@ -45,7 +45,9 @@ int main(int argc, char **argv) {
       return 1;
     }
     std::cerr << "Received " << *status_or
-              << " bytes: " << std::string(message, *status_or) << std::endl;
+              << " bytes: "
+              << std::string(message, static_cast<size_t>(*status_or))
+              << std::endl;
   }
 
   return 0;

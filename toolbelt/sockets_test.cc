@@ -104,12 +104,12 @@ TEST(SocketsTest, UnixSocket) {
         ASSERT_TRUE(nbytes.ok());
         auto n = nbytes.value();
         ASSERT_EQ(12, n);  // "hello world\0"
-        ASSERT_EQ("hello world", std::string(buffer + 4, n - 1));
+        ASSERT_EQ("hello world", std::string(buffer + 4, static_cast<size_t>(n - 1)));
         std::vector<toolbelt::FileDescriptor> fds;
 
         absl::Status s2 = socket.ReceiveFds(fds, c);
         ASSERT_TRUE(s2.ok());
-        ASSERT_EQ(3, fds.size());
+        ASSERT_EQ(size_t{3}, fds.size());
     });
 
     co::Coroutine outgoing(scheduler, [&socket_name](co::Coroutine* c) {
@@ -120,7 +120,8 @@ TEST(SocketsTest, UnixSocket) {
         // SendMessage uses the 4 bytes below the buffer for the length of the message.
         ssize_t n = snprintf(buffer + 4, sizeof(buffer) - 4, "hello world");
         n += 1;  // Include NUL at end.
-        absl::StatusOr<ssize_t> nsent = socket.SendMessage(buffer + 4, n, c);
+        absl::StatusOr<ssize_t> nsent =
+            socket.SendMessage(buffer + 4, static_cast<size_t>(n), c);
         ASSERT_TRUE(nsent.ok());
         ASSERT_EQ(n + 4, nsent.value());
 
@@ -198,10 +199,10 @@ TEST(SocketsTest, UnixSocketShortFdCountRead) {
         std::vector<toolbelt::FileDescriptor> fds;
         absl::Status s2 = socket.ReceiveFds(fds, c);
         ASSERT_TRUE(s2.ok());
-        ASSERT_EQ(1, fds.size());
+        ASSERT_EQ(size_t{1}, fds.size());
     });
 
-    co::Coroutine outgoing(scheduler, [&socket_name](co::Coroutine* c) {
+    co::Coroutine outgoing(scheduler, [&socket_name](co::Coroutine* /*c*/) {
         toolbelt::UnixSocket socket;
         absl::Status s = socket.Connect(socket_name);
         ASSERT_TRUE(s.ok());
@@ -264,7 +265,7 @@ TEST(SocketsTest, TCPSocket) {
         absl::StatusOr<std::vector<char>> b = socket.ReceiveVariableLengthMessage(c);
         ASSERT_TRUE(b.ok());
         auto buf = b.value();
-        ASSERT_EQ(12, buf.size());  // "hello world\0"
+        ASSERT_EQ(size_t{12}, buf.size());  // "hello world\0"
         ASSERT_EQ("hello world", std::string(buf.data(), 11));
     });
 
@@ -276,7 +277,8 @@ TEST(SocketsTest, TCPSocket) {
         // SendMessage uses the 4 bytes below the buffer for the length of the message.
         ssize_t n = snprintf(buffer + 4, sizeof(buffer) - 4, "hello world");
         n += 1;  // Include NUL at end.
-        absl::StatusOr<ssize_t> nsent = socket.SendMessage(buffer + 4, n, c);
+        absl::StatusOr<ssize_t> nsent =
+            socket.SendMessage(buffer + 4, static_cast<size_t>(n), c);
         ASSERT_TRUE(nsent.ok());
         ASSERT_EQ(n + 4, nsent.value());
     });
@@ -310,7 +312,9 @@ TEST(SocketsTest, BigTCPSocketNonblocking) {
                 std::cerr << "Mismatch at " << i << ": " << buf[i] << " != " << 'a' + (i % 26)
                           << "\n";
             }
-            ASSERT_EQ('a' + ((i + 4) % 26), buf[i]);
+            ASSERT_EQ(static_cast<char>(static_cast<size_t>('a') +
+                                        ((i + 4) % 26)),
+                      buf[i]);
         }
     });
 
@@ -326,7 +330,7 @@ TEST(SocketsTest, BigTCPSocketNonblocking) {
         absl::StatusOr<ssize_t> nsent =
                 socket.SendMessage(buffer.data() + 4, buffer.size() - 4, c);
         ASSERT_TRUE(nsent.ok());
-        ASSERT_EQ(buffer.size(), nsent.value());
+        ASSERT_EQ(static_cast<ssize_t>(buffer.size()), nsent.value());
     });
 
     scheduler.Run();
@@ -358,7 +362,10 @@ TEST(SocketsTest, BigTCPSocketBlocking) {
                         std::cerr << "Mismatch at " << i << ": " << buf[i]
                                   << " != " << 'a' + (i % 26) << "\n";
                     }
-                    ASSERT_EQ('a' + ((i + 4) % 26), buf[i]);
+                    ASSERT_EQ(
+                        static_cast<char>(static_cast<size_t>('a') +
+                                          ((i + 4) % 26)),
+                        buf[i]);
                 }
             });
 
@@ -373,7 +380,7 @@ TEST(SocketsTest, BigTCPSocketBlocking) {
         absl::StatusOr<ssize_t> nsent =
                 socket.SendMessage(buffer.data() + 4, buffer.size() - 4, c);
         ASSERT_TRUE(nsent.ok());
-        ASSERT_EQ(buffer.size(), nsent.value());
+        ASSERT_EQ(static_cast<ssize_t>(buffer.size()), nsent.value());
     });
 
     std::thread sender([&sendScheduler]() { sendScheduler.Run(); });
@@ -430,7 +437,7 @@ TEST(SocketsTest, TCPSocket2) {
         ASSERT_TRUE(nbytes.ok());
         auto n = nbytes.value();
         ASSERT_EQ(12, n);  // "hello world\0"
-        ASSERT_EQ("hello world", std::string(buffer, n - 1));
+        ASSERT_EQ("hello world", std::string(buffer, static_cast<size_t>(n - 1)));
         std::vector<toolbelt::FileDescriptor> fds;
     });
 
@@ -441,7 +448,7 @@ TEST(SocketsTest, TCPSocket2) {
         char buffer[256];
         ssize_t n = snprintf(buffer, sizeof(buffer), "hello world");
         n += 1;  // Include NUL at end.
-        absl::StatusOr<ssize_t> nsent = socket.Send(buffer, n, c);
+        absl::StatusOr<ssize_t> nsent = socket.Send(buffer, static_cast<size_t>(n), c);
         ASSERT_TRUE(nsent.ok());
         ASSERT_EQ(n, nsent.value());
     });
@@ -471,7 +478,7 @@ TEST(SocketsTest, TCPSocket3) {
         ASSERT_TRUE(nbytes.ok());
         auto n = nbytes.value();
         ASSERT_EQ(12, n);  // "hello world\0"
-        ASSERT_EQ("hello world", std::string(buffer, n - 1));
+        ASSERT_EQ("hello world", std::string(buffer, static_cast<size_t>(n - 1)));
         std::vector<toolbelt::FileDescriptor> fds;
     });
 
@@ -482,7 +489,7 @@ TEST(SocketsTest, TCPSocket3) {
         char buffer[256];
         ssize_t n = snprintf(buffer, sizeof(buffer), "hello world");
         n += 1;  // Include NUL at end.
-        absl::StatusOr<ssize_t> nsent = socket.Send(buffer, n, c);
+        absl::StatusOr<ssize_t> nsent = socket.Send(buffer, static_cast<size_t>(n), c);
         ASSERT_TRUE(nsent.ok());
         ASSERT_EQ(n, nsent.value());
     });
@@ -528,7 +535,7 @@ TEST(SocketsTest, UDPSocket) {
         ASSERT_TRUE(nbytes.ok());
         auto n = nbytes.value();
         ASSERT_EQ(12, n);  // "hello world\0"
-        ASSERT_EQ("hello world", std::string(buffer, n - 1));
+        ASSERT_EQ("hello world", std::string(buffer, static_cast<size_t>(n - 1)));
     });
 
     co::Coroutine outgoing(scheduler, [&sender, &Receiver](co::Coroutine* c) {
@@ -540,7 +547,7 @@ TEST(SocketsTest, UDPSocket) {
         ssize_t n = snprintf(buffer, sizeof(buffer), "hello world");
         n += 1;  // Include NUL at end.
 
-        absl::Status s2 = socket.SendTo(Receiver, buffer, n, c);
+        absl::Status s2 = socket.SendTo(Receiver, buffer, static_cast<size_t>(n), c);
         ASSERT_TRUE(s2.ok());
     });
 
@@ -565,7 +572,7 @@ TEST(SocketsTest, UDPSocket2) {
         ASSERT_TRUE(nbytes.ok());
         auto n = nbytes.value();
         ASSERT_EQ(12, n);  // "hello world\0"
-        ASSERT_EQ("hello world", std::string(buffer, n - 1));
+        ASSERT_EQ("hello world", std::string(buffer, static_cast<size_t>(n - 1)));
         ASSERT_EQ(sender, from);
     });
 
@@ -578,7 +585,7 @@ TEST(SocketsTest, UDPSocket2) {
         ssize_t n = snprintf(buffer, sizeof(buffer), "hello world");
         n += 1;  // Include NUL at end.
 
-        absl::Status s2 = socket.SendTo(receiver, buffer, n, c);
+        absl::Status s2 = socket.SendTo(receiver, buffer, static_cast<size_t>(n), c);
         ASSERT_TRUE(s2.ok());
     });
 
@@ -609,7 +616,8 @@ TEST(SocketsTest, UDPSocket_SendAndReceiveUnicast) {
   ASSERT_TRUE(sender.SendTo(sendto_address, TEST_DATA.data(), TEST_DATA.size()).ok());
 
   std::vector<char> Receive_buffer(TEST_DATA.size());
-  ASSERT_EQ(*Receiver.Receive(Receive_buffer.data(), Receive_buffer.size()), TEST_DATA.size());
+  ASSERT_EQ(*Receiver.Receive(Receive_buffer.data(), Receive_buffer.size()),
+            static_cast<ssize_t>(TEST_DATA.size()));
   ASSERT_EQ(std::string_view(Receive_buffer.data(), Receive_buffer.size()), TEST_DATA);
 }
 
@@ -632,7 +640,8 @@ TEST(SocketsTest, UDPSocket_SendAndReceiveBroadcast) {
   ASSERT_TRUE(sender.SendTo(sendto_address, TEST_DATA.data(), TEST_DATA.size()).ok());
 
   std::vector<char> Receive_buffer(TEST_DATA.size());
-  ASSERT_EQ(*Receiver.Receive(Receive_buffer.data(), Receive_buffer.size()), TEST_DATA.size());
+  ASSERT_EQ(*Receiver.Receive(Receive_buffer.data(), Receive_buffer.size()),
+            static_cast<ssize_t>(TEST_DATA.size()));
   ASSERT_EQ(std::string_view(Receive_buffer.data(), Receive_buffer.size()), TEST_DATA);
 }
 
@@ -663,7 +672,8 @@ TEST(SocketsTest, UDPSocket_SendAndReceiveMulticast) {
     while (absl::Now() < timeout) {
         auto status_or_len = Receiver.Receive(Receive_buffer.data(), Receive_buffer.size());
         if (status_or_len.ok()) {
-            ASSERT_EQ(*status_or_len, TEST_DATA.size());
+            ASSERT_EQ(*status_or_len,
+                      static_cast<ssize_t>(TEST_DATA.size()));
             ASSERT_EQ(std::string_view(Receive_buffer.data(), Receive_buffer.size()), TEST_DATA);
             break;
         }

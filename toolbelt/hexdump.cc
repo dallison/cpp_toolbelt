@@ -11,23 +11,26 @@ namespace toolbelt {
 
 void Hexdump(const void *addr, size_t length, FILE* out) {
   const char *p = reinterpret_cast<const char *>(addr);
-  length = (length + 15) & ~15;
   while (length > 0) {
-    fprintf(out, "%p ", p);
-    for (int i = 0; i < 16; i++) {
-     fprintf(out, "%02X ", p[i] & 0xff);
+    const size_t row_length = length < 16U ? length : 16U;
+    fprintf(out, "%p ", static_cast<const void *>(p));
+    for (size_t i = 0; i < row_length; i++) {
+      fprintf(out, "%02X ", static_cast<unsigned char>(p[i]) & 0xffU);
+    }
+    for (size_t i = row_length; i < 16U; ++i) {
+      fprintf(out, "   ");
     }
     fprintf(out, "  ");
-    for (int i = 0; i < 16; i++) {
-      if (isprint(p[i])) {
+    for (size_t i = 0; i < row_length; i++) {
+      if (isprint(static_cast<unsigned char>(p[i]))) {
         fprintf(out, "%c", p[i]);
       } else {
         fprintf(out, ".");
       }
     }
     fprintf(out, "\n");
-    p += 16;
-    length -= 16;
+    p += row_length;
+    length -= row_length;
   }
 }
 

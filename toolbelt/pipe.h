@@ -3,11 +3,12 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
-#include "co/coroutine.h"
+#include "toolbelt/coroutine.h"
 #include "toolbelt/fd.h"
 
 #include <chrono>
 #include <errno.h>
+#include <limits>
 #include <memory>
 #include <thread>
 #include <unistd.h>
@@ -154,14 +155,17 @@ public:
                                const co::Coroutine * = nullptr) override {
     return absl::InternalError("Not supported on SharedPtrPipe");
   }
-  absl::StatusOr<ssize_t> Write(const char *, size_t ,
-                                const co::Coroutine *c = nullptr) override {
+  absl::StatusOr<ssize_t> Write(const char *, size_t,
+                                const co::Coroutine * = nullptr) override {
     return absl::InternalError("Not supported on SharedPtrPipe");
   }
 
   absl::StatusOr<std::shared_ptr<T>> Read(const co::Coroutine *c = nullptr) {
     char buffer[sizeof(std::shared_ptr<T>)];
-    size_t length = sizeof(buffer);
+    const size_t length = sizeof(buffer);
+    if (length > static_cast<size_t>(std::numeric_limits<ssize_t>::max())) {
+      return absl::InternalError("Read size too large");
+    }
     size_t total = 0;
     ScopedRead sc(*this, c);
 
@@ -195,7 +199,9 @@ public:
           }
         }
       }
-      total += n;
+      if (n > 0) {
+        total += static_cast<size_t>(n);
+      }
     }
     // Ref count = N + 1.
     auto copy = *reinterpret_cast<std::shared_ptr<T> *>(buffer);
@@ -230,8 +236,11 @@ public:
 
     ScopedReference sr(buffer);
 
+    const size_t length = sizeof(buffer);
+    if (length > static_cast<size_t>(std::numeric_limits<ssize_t>::max())) {
+      return absl::InternalError("Write size too large");
+    }
     size_t total = 0;
-    size_t length = sizeof(buffer);
     while (total < length) {
       if (c != nullptr) {
         // When writing we use PollAndWait to cause the write to happen as soon
@@ -263,7 +272,9 @@ public:
           }
         }
       }
-      total += n;
+      if (n > 0) {
+        total += static_cast<size_t>(n);
+      }
     }
     // Prevent deref of pointer in buffer.
     sr.buffer_ = nullptr;

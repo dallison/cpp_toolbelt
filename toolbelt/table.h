@@ -72,7 +72,7 @@ private:
   void AddCell(size_t col, const Cell &cell);
 
   std::vector<Column> cols_ = {};
-  int num_rows_ = 0;
+  size_t num_rows_ = 0;
 
   size_t sort_column_ = 0;
   std::function<bool(const std::string &, const std::string &)> sorter_;
