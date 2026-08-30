@@ -2,8 +2,10 @@
 
 #include "absl/types/span.h"
 #include "toolbelt/hexdump.h"
+#include <cassert>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,6 +14,30 @@
 #include <type_traits>
 
 namespace toolbelt {
+
+namespace payload_buffer_detail {
+
+inline constexpr uint32_t kMaxU32 = std::numeric_limits<uint32_t>::max();
+
+inline bool FitsInU32(size_t value) { return value <= kMaxU32; }
+
+inline bool FitsInU32(uint64_t value) { return value <= kMaxU32; }
+
+inline bool ByteCountFitsInU32(size_t count, size_t element_size) {
+  return element_size == 0 || count <= kMaxU32 / element_size;
+}
+
+inline uint32_t ToU32(size_t value) {
+  assert(FitsInU32(value));
+  return static_cast<uint32_t>(value);
+}
+
+inline uint32_t ToU32(uint64_t value) {
+  assert(FitsInU32(value));
+  return static_cast<uint32_t>(value);
+}
+
+} // namespace payload_buffer_detail
 
 constexpr uint32_t kFixedBufferMagic = 0xe5f6f1c4;
 constexpr uint32_t kMovableBufferMagic = 0xc5f6f1c4;
@@ -540,10 +566,19 @@ inline bool PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
   // by the block size (in bytes).
   BufferOffset hdr_offset = (*self)->ToOffset(hdr);
 
-  uint32_t total_size = hdr->num_elements * sizeof(T);
+  if (!payload_buffer_detail::ByteCountFitsInU32(hdr->num_elements,
+                                                 sizeof(T))) {
+    return false;
+  }
+  const size_t total_size = static_cast<size_t>(hdr->num_elements) * sizeof(T);
   if (hdr->data == 0) {
     // The vector is empty, allocate it with a default size of 2.
-    void *vecp = Allocate(self, 2 * sizeof(T), true, enable_small_block);
+    const size_t initial_bytes = 2 * sizeof(T);
+    if (!payload_buffer_detail::FitsInU32(initial_bytes)) {
+      return false;
+    }
+    void *vecp = Allocate(self, payload_buffer_detail::ToU32(initial_bytes), true,
+                          enable_small_block);
     if (vecp == nullptr) {
       return false;
     }
@@ -554,11 +589,15 @@ inline bool PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
     // Vector has some values in it.  Retrieve the total size from
     // the allocated block header (before the start of the memory)
     uint32_t *block = (*self)->ToAddress<uint32_t>(hdr->data);
-    uint32_t current_size = DecodedSize(block);
-    if (current_size == total_size) {
+    const uint32_t current_size = DecodedSize(block);
+    if (current_size == payload_buffer_detail::ToU32(total_size)) {
       // Need to double the size of the memory.
-      void *vecp = Realloc(self, block, 2 * hdr->num_elements * sizeof(T), true,
-                           enable_small_block);
+      if (total_size > payload_buffer_detail::kMaxU32 / 2) {
+        return false;
+      }
+      const size_t doubled_bytes = total_size * 2;
+      void *vecp = Realloc(self, block, payload_buffer_detail::ToU32(doubled_bytes),
+                           true, enable_small_block);
       if (vecp == nullptr) {
         return false;
       }
@@ -584,8 +623,13 @@ inline bool PayloadBuffer::VectorReserve(PayloadBuffer **self,
     return true;
   }
   BufferOffset hdr_offset = (*self)->ToOffset(hdr);
+  if (!payload_buffer_detail::ByteCountFitsInU32(n, sizeof(T))) {
+    return false;
+  }
+  const size_t reserve_bytes = n * sizeof(T);
   if (hdr->data == 0) {
-    void *vecp = Allocate(self, n * sizeof(T), false, enable_small_block);
+    void *vecp = Allocate(self, payload_buffer_detail::ToU32(reserve_bytes),
+                          false, enable_small_block);
     if (vecp == nullptr) {
       return false;
     }
@@ -595,11 +639,12 @@ inline bool PayloadBuffer::VectorReserve(PayloadBuffer **self,
     // Vector has some values in it.  Retrieve the total size from
     // the allocated block header (before the start of the memory)
     uint32_t *block = (*self)->ToAddress<uint32_t>(hdr->data);
-    uint32_t current_size = DecodedSize(block);
-    if (current_size < n * sizeof(T)) {
+    const uint32_t current_size = DecodedSize(block);
+    if (current_size < payload_buffer_detail::ToU32(reserve_bytes)) {
       // Need to expand the memory to the size given.
       void *vecp =
-          Realloc(self, block, n * sizeof(T), false, enable_small_block);
+          Realloc(self, block, payload_buffer_detail::ToU32(reserve_bytes),
+                  false, enable_small_block);
       if (vecp == nullptr) {
         return false;
       }
@@ -617,9 +662,17 @@ inline bool PayloadBuffer::VectorResize(PayloadBuffer **self, VectorHeader *hdr,
     hdr->num_elements = 0;
     return true;
   }
+  if (!payload_buffer_detail::FitsInU32(n)) {
+    return false;
+  }
+  const uint32_t element_count = payload_buffer_detail::ToU32(n);
+  if (!payload_buffer_detail::ByteCountFitsInU32(n, sizeof(T))) {
+    return false;
+  }
+  const size_t resize_bytes = n * sizeof(T);
   BufferOffset hdr_offset = (*self)->ToOffset(hdr);
   if (hdr->data == 0) {
-    void *vecp = Allocate(self, n * sizeof(T));
+    void *vecp = Allocate(self, payload_buffer_detail::ToU32(resize_bytes));
     if (vecp == nullptr) {
       return false;
     }
@@ -630,10 +683,11 @@ inline bool PayloadBuffer::VectorResize(PayloadBuffer **self, VectorHeader *hdr,
     // Vector has some values in it.  Retrieve the total size from
     // the allocated block header (before the start of the memory)
     uint32_t *block = (*self)->ToAddress<uint32_t>(hdr->data);
-    uint32_t current_size = DecodedSize(block);
-    if (current_size < n * sizeof(T)) {
+    const uint32_t current_size = DecodedSize(block);
+    if (current_size < payload_buffer_detail::ToU32(resize_bytes)) {
       // Need to expand the memory to the size given.
-      void *vecp = Realloc(self, block, n * sizeof(T), 8);
+      void *vecp =
+          Realloc(self, block, payload_buffer_detail::ToU32(resize_bytes), 8);
       if (vecp == nullptr) {
         return false;
       }
@@ -642,7 +696,7 @@ inline bool PayloadBuffer::VectorResize(PayloadBuffer **self, VectorHeader *hdr,
       hdr = new_hdr;
     }
   }
-  hdr->num_elements = n;
+  hdr->num_elements = element_count;
   return true;
 }
 
@@ -659,6 +713,9 @@ inline void PayloadBuffer::VectorClear(PayloadBuffer **self,
 template <typename T>
 inline T PayloadBuffer::VectorGet(const VectorHeader *hdr, size_t index) const {
   if (index >= hdr->num_elements) {
+    return static_cast<T>(0);
+  }
+  if (!payload_buffer_detail::ByteCountFitsInU32(index + 1, sizeof(T))) {
     return static_cast<T>(0);
   }
   const T *addr = ToAddress<const T>(hdr->data, (index + 1) * sizeof(T));

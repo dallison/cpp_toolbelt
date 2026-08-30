@@ -1,5 +1,7 @@
 #include "toolbelt/fd.h"
 
+#include <limits>
+
 namespace toolbelt {
 
 // Close all open file descriptor for which the predicate returns true.
@@ -7,8 +9,13 @@ void CloseAllFds(std::function<bool(int)> predicate) {
   struct rlimit lim;
   int e = getrlimit(RLIMIT_NOFILE, &lim);
   if (e == 0) {
-    for (rlim_t fd = 0; fd < lim.rlim_cur; fd++) {
-      if (fcntl(fd, F_GETFD) == 0 && predicate(fd) ) {
+    const rlim_t int_max = static_cast<rlim_t>(std::numeric_limits<int>::max());
+    for (rlim_t i = 0; i < lim.rlim_cur; ++i) {
+      if (i > int_max) {
+        break;
+      }
+      const int fd = static_cast<int>(i);
+      if (fcntl(fd, F_GETFD) == 0 && predicate(fd)) {
         (void)close(fd);
       }
     }
@@ -17,6 +24,9 @@ void CloseAllFds(std::function<bool(int)> predicate) {
 
 absl::StatusOr<ssize_t> FileDescriptor::Read(void *buffer, size_t length,
                                              const co::Coroutine *c) {
+  if (length > static_cast<size_t>(std::numeric_limits<ssize_t>::max())) {
+    return absl::InternalError("Read size too large");
+  }
   char *buf = reinterpret_cast<char *>(buffer);
   size_t total = 0;
   while (total < length) {
@@ -52,13 +62,16 @@ absl::StatusOr<ssize_t> FileDescriptor::Read(void *buffer, size_t length,
       return absl::InternalError(
           absl::StrFormat("Read failed: %s", strerror(errno)));
     }
-    total += n;
+    total += static_cast<size_t>(n);
   }
-  return total;
+  return static_cast<ssize_t>(total);
 }
 
 absl::StatusOr<ssize_t> FileDescriptor::Write(const void *buffer, size_t length,
                                               const co::Coroutine *c) {
+  if (length > static_cast<size_t>(std::numeric_limits<ssize_t>::max())) {
+    return absl::InternalError("Write size too large");
+  }
   const char *buf = reinterpret_cast<const char *>(buffer);
 
   size_t total = 0;
@@ -95,9 +108,9 @@ absl::StatusOr<ssize_t> FileDescriptor::Write(const void *buffer, size_t length,
       return absl::InternalError(
           absl::StrFormat("Write failed: %s", strerror(errno)));
     }
-    total += n;
+    total += static_cast<size_t>(n);
   }
-  return total;
+  return static_cast<ssize_t>(total);
 }
 
 } // namespace toolbelt

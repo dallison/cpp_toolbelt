@@ -3,7 +3,7 @@
 // See LICENSE file for licensing information.
 
 #include "absl/status/status_matchers.h"
-#include "co/coroutine.h"
+#include "toolbelt/coroutine.h"
 #include "pipe.h"
 #include <gtest/gtest.h>
 #include <string_view>
@@ -70,7 +70,7 @@ TEST(PipeTest, CoroutinePipeReadAndWrite) {
     auto r = pipe.Read(buffer, 5, c);
     ASSERT_OK(r);
     ASSERT_EQ(*r, 5);
-    ASSERT_EQ(std::string_view(buffer, *r), "Hello");
+    ASSERT_EQ(std::string_view(buffer, static_cast<size_t>(*r)), "Hello");
   });
   co::Coroutine writer(scheduler, [&pipe](co::Coroutine *c) {
     const char *msg = "Hello";
@@ -93,7 +93,7 @@ TEST(PipeTest, CoroutinePipeReadAndWriteNonblocking) {
     auto r = pipe.Read(buffer, 5, c);
     ASSERT_OK(r);
     ASSERT_EQ(*r, 5);
-    ASSERT_EQ(std::string_view(buffer, *r), "Hello");
+    ASSERT_EQ(std::string_view(buffer, static_cast<size_t>(*r)), "Hello");
   });
   co::Coroutine writer(scheduler, [&pipe](co::Coroutine *c) {
     const char *msg = "Hello";
@@ -159,7 +159,7 @@ TEST(PipeTest, CoroutineFullPipeReadAndWrite) {
       auto r = pipe.Read(buffer, kMessageSize, c);
       ASSERT_OK(r);
       ASSERT_EQ(*r, kMessageSize);
-      ASSERT_EQ(std::string_view(buffer, *r), "1234");
+      ASSERT_EQ(std::string_view(buffer, static_cast<size_t>(*r)), "1234");
     }
   });
   co::Coroutine writer(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
@@ -194,7 +194,7 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWrite) {
       auto r = pipe.Read(buffer, kMessageSize, c);
       ASSERT_OK(r);
       ASSERT_EQ(*r, kMessageSize);
-      ASSERT_EQ(std::string_view(buffer, *r), "1234");
+      ASSERT_EQ(std::string_view(buffer, static_cast<size_t>(*r)), "1234");
     }
   });
   co::Coroutine writer(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
@@ -226,7 +226,7 @@ TEST(PipeTest, CoroutineFullPipeReadAndWriteNonblocking) {
       auto r = pipe.Read(buffer, kMessageSize, c);
       ASSERT_OK(r);
       ASSERT_EQ(*r, kMessageSize);
-      ASSERT_EQ(std::string_view(buffer, *r), "1234");
+      ASSERT_EQ(std::string_view(buffer, static_cast<size_t>(*r)), "1234");
     }
   });
   co::Coroutine writer(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
@@ -262,7 +262,7 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWriteNonblocking) {
       auto r = pipe.Read(buffer, kMessageSize, c);
       ASSERT_OK(r);
       ASSERT_EQ(*r, kMessageSize);
-      ASSERT_EQ(std::string_view(buffer, *r), "1234");
+      ASSERT_EQ(std::string_view(buffer, static_cast<size_t>(*r)), "1234");
     }
   });
   co::Coroutine writer(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
@@ -288,12 +288,12 @@ TEST(PipeTest, CoroutinePipeReadAndMultiWrite) {
     auto r = pipe.Read(buffer, 5, c);
     ASSERT_OK(r);
     ASSERT_EQ(*r, 5);
-    ASSERT_EQ(std::string_view(buffer, *r), "12345");
+    ASSERT_EQ(std::string_view(buffer, static_cast<size_t>(*r)), "12345");
 
     r = pipe.Read(buffer, 5, c);
     ASSERT_OK(r);
     ASSERT_EQ(*r, 5);
-    ASSERT_EQ(std::string_view(buffer, *r), "54321");
+    ASSERT_EQ(std::string_view(buffer, static_cast<size_t>(*r)), "54321");
   });
 
   co::Coroutine writer1(scheduler, [&pipe](co::Coroutine *c) {
@@ -333,7 +333,7 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWriteMultiwriter) {
       ASSERT_OK(r);
       ASSERT_EQ(*r, kMessageSize);
       // Can be in either order.
-      std::string_view got(buffer, *r);
+      std::string_view got(buffer, static_cast<size_t>(*r));
       bool ok = got == "1234" || got == "4321";
       ASSERT_TRUE(ok);
     }
@@ -382,7 +382,7 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWriteMultiwriterNonblocking) {
       ASSERT_OK(r);
       ASSERT_EQ(*r, kMessageSize);
       // Can be in either order.
-      std::string_view got(buffer, *r);
+      std::string_view got(buffer, static_cast<size_t>(*r));
       bool ok = got == "1234" || got == "4321";
       ASSERT_TRUE(ok);
     }

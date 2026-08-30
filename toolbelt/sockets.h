@@ -6,7 +6,7 @@
 #define __TOOLBELT_SOCKETS_H
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "co/coroutine.h"
+#include "toolbelt/coroutine.h"
 #include "fd.h"
 #include <iostream>
 #include <netinet/in.h>
@@ -277,7 +277,7 @@ public:
   }
 
   // What address type is in the variant.
-  int Type() const { return address_.index(); }
+  int Type() const { return static_cast<int>(address_.index()); }
 
   int Port() const {
     return std::visit(
@@ -757,7 +757,10 @@ public:
               return SocketAddress(*st);
             },
             [&](const VirtualStreamSocket &s) -> absl::StatusOr<SocketAddress> {
-              auto st = s.LocalAddress(port);
+              if (port < 0) {
+                return absl::InvalidArgumentError("Port must be non-negative");
+              }
+              auto st = s.LocalAddress(static_cast<uint32_t>(port));
               if (!st.ok()) {
                 return st;
               }

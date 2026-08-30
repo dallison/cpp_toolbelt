@@ -1,6 +1,7 @@
 #include "toolbelt/pipe.h"
 #include "absl/strings/str_format.h"
 
+#include <limits>
 #include <unistd.h>
 
 namespace toolbelt {
@@ -71,19 +72,26 @@ absl::StatusOr<size_t> Pipe::GetPipeSize() {
 
 absl::Status Pipe::SetPipeSize(size_t size) {
 #if defined(__linux__)
-  int e = fcntl(write_.Fd(), F_SETPIPE_SZ, size);
+  if (size > static_cast<size_t>(std::numeric_limits<int>::max())) {
+    return absl::InternalError("Pipe size too large");
+  }
+  int e = fcntl(write_.Fd(), F_SETPIPE_SZ, static_cast<int>(size));
   if (e == -1) {
     return absl::InternalError(
         absl::StrFormat("Failed to set pipe size: %s", strerror(errno)));
   }
   return absl::OkStatus();
 #else
+  (void)size;
   return absl::UnimplementedError("SetPipeSize is not implemented on this OS");
 #endif
 }
 
 absl::StatusOr<ssize_t> Pipe::Read(char *buffer, size_t length,
                                    const co::Coroutine *c) {
+  if (length > static_cast<size_t>(std::numeric_limits<ssize_t>::max())) {
+    return absl::InternalError("Read size too large");
+  }
   size_t total = 0;
   ScopedRead sc(*this, c);
 
@@ -117,13 +125,18 @@ absl::StatusOr<ssize_t> Pipe::Read(char *buffer, size_t length,
         }
       }
     }
-    total += n;
+    if (n > 0) {
+      total += static_cast<size_t>(n);
+    }
   }
-  return total;
+  return static_cast<ssize_t>(total);
 }
 
 absl::StatusOr<ssize_t> Pipe::Write(const char *buffer, size_t length,
                                     const co::Coroutine *c) {
+  if (length > static_cast<size_t>(std::numeric_limits<ssize_t>::max())) {
+    return absl::InternalError("Write size too large");
+  }
   size_t total = 0;
   ScopedWrite sc(*this, c);
 
@@ -158,9 +171,11 @@ absl::StatusOr<ssize_t> Pipe::Write(const char *buffer, size_t length,
         }
       }
     }
-    total += n;
+    if (n > 0) {
+      total += static_cast<size_t>(n);
+    }
   }
-  return total;
+  return static_cast<ssize_t>(total);
 }
 
 } // namespace toolbelt

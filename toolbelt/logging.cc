@@ -5,6 +5,7 @@
 #include "logging.h"
 #include "absl/strings/str_format.h"
 #include "clock.h"
+#include <algorithm>
 #include <cstdio>
 #include <inttypes.h>
 #include <termios.h>
@@ -156,28 +157,38 @@ void Logger::VLog(LogLevel level, const char *fmt, va_list ap) {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
 #endif
-  size_t n = vsnprintf(buffer_, sizeof(buffer_), fmt, ap);
+  const int formatted = vsnprintf(buffer_, sizeof(buffer_), fmt, ap);
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #elif defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
 
+  const size_t n =
+      formatted < 0
+          ? size_t{0}
+          : std::min(static_cast<size_t>(formatted), sizeof(buffer_) - 1);
+  if (formatted < 0) {
+    buffer_[0] = '\0';
+  }
+
   // Strip final \n if present.  Refactoring from printf can leave
   // this in place.
-  if (buffer_[n - 1] == '\n') {
+  if (n > 0 && buffer_[n - 1] == '\n') {
     buffer_[n - 1] = '\0';
   }
 
   struct timespec now_ts;
   clock_gettime(CLOCK_REALTIME, &now_ts);
-  uint64_t now_ns = now_ts.tv_sec * 1000000000LL + now_ts.tv_nsec;
+  uint64_t now_ns = static_cast<uint64_t>(now_ts.tv_sec) * 1000000000ULL +
+                    static_cast<uint64_t>(now_ts.tv_nsec);
 
   char timebuf[64];
   struct tm tm;
-  n = strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S",
+  const size_t time_length =
+      strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S",
                localtime_r(&now_ts.tv_sec, &tm));
-  snprintf(timebuf + n, sizeof(timebuf) - n, ".%09" PRIu64,
+  snprintf(timebuf + time_length, sizeof(timebuf) - time_length, ".%09" PRIu64,
            now_ns % 1000000000);
 
   Log(level, now_ns, "", buffer_);
@@ -191,13 +202,13 @@ void Logger::Log(LogLevel level, uint64_t timestamp, const std::string &source,
 
   // Strip final \n if present.  Refactoring from printf can leave
   // this in place.
-  if (text[text.size() - 1] == '\n') {
+  if (!text.empty() && text.back() == '\n') {
     text = text.substr(0, text.size() - 1);
   }
 
   char timebuf[64];
   struct tm tm;
-  time_t secs = timestamp / 1000000000LL;
+  time_t secs = static_cast<time_t>(timestamp / 1000000000ULL);
   size_t n = strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S",
                       localtime_r(&secs, &tm));
   snprintf(timebuf + n, sizeof(timebuf) - n, ".%09" PRIu64,
@@ -245,20 +256,17 @@ void Logger::SetDisplayMode(int fd) {
       column_widths_[0] = 30; // Timestamp.
 
       // Subsystem, with a max of 20.
-      column_widths_[1] = int(subsystem_.size());
-      if (column_widths_[1] > 20) {
-        column_widths_[1] = 20;
-      }
+      column_widths_[1] = std::min(subsystem_.size(), size_t{20});
       column_widths_[2] = 3;  // Log level
       column_widths_[3] = 20; // Source
-      ssize_t remaining = screen_width_;
-      for (int i = 0; i < 4; i++) {
-        remaining -= column_widths_[i] + 1;
+      ssize_t remaining = static_cast<ssize_t>(screen_width_);
+      for (size_t i = 0; i < 4; i++) {
+        remaining -= static_cast<ssize_t>(column_widths_[i] + 1);
       }
-      if (remaining < 0) {
+      if (remaining <= 1) {
         remaining = 20;
       }
-      column_widths_[4] = remaining - 1;
+      column_widths_[4] = static_cast<size_t>(remaining - 1);
       display_mode_ = LogDisplayMode::kColumnar;
     }
   } else {
@@ -313,8 +321,8 @@ void Logger::LogColumnar(const char *timebuf, LogLevel level,
   bool first_line = true;
   size_t start = 0;
   int prefix_length = 0;
-  for (int i = 0; i < 4; i++) {
-    prefix_length += column_widths_[i] + 1;
+  for (size_t i = 0; i < 4; i++) {
+    prefix_length += static_cast<int>(column_widths_[i]) + 1;
   }
   for (;;) {
     std::string segment = text.substr(start);
@@ -326,23 +334,23 @@ void Logger::LogColumnar(const char *timebuf, LogLevel level,
     if (segment.size() > column_widths_[4]) {
       segment = segment.substr(0, column_widths_[4]);
       // Move back to the first space to avoid splitting words.
-      ssize_t i = segment.size() - 1;
+      ssize_t i = static_cast<ssize_t>(segment.size()) - 1;
       while (i > 0) {
-        if (isspace(segment[i])) {
+        if (isspace(segment[static_cast<size_t>(i)])) {
           break;
         }
         i--;
       }
       // If there is no space we just split the word.
       if (i != 0) {
-        segment = segment.substr(0, i);
+        segment = segment.substr(0, static_cast<size_t>(i));
       }
     }
     // clang-format off.
     fprintf(output_stream_, "%-*s%s%-*s%s\n", prefix_length,
             first_line ? prefix.c_str() : "",
             color::SetColor(ColorForLogLevel(level)).c_str(),
-            int(column_widths_[4]), segment.c_str(),
+            static_cast<int>(column_widths_[4]), segment.c_str(),
             color::ResetColor().c_str());
     // clang-format on
     start += segment.size();

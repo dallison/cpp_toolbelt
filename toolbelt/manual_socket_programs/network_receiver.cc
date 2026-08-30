@@ -17,7 +17,11 @@ int main(int argc, char **argv) {
   if (protocol == "tcp") {
     addr = toolbelt::InetAddress::AnyAddress(port);
   } else if (protocol == "vm") {
-    addr = toolbelt::VirtualAddress::AnyAddress(port);
+    if (port < 0) {
+      std::cerr << "VM port must be non-negative" << std::endl;
+      return 1;
+    }
+    addr = toolbelt::VirtualAddress::AnyAddress(static_cast<uint32_t>(port));
   } else {
     std::cerr << "Unknown protocol: " << protocol << std::endl;
     return 1;
@@ -68,7 +72,9 @@ int main(int argc, char **argv) {
       return 1;
     }
     std::cerr << "Received " << *status_or
-              << " bytes: " << std::string(message, *status_or) << std::endl;
+              << " bytes: "
+              << std::string(message, static_cast<size_t>(*status_or))
+              << std::endl;
   }
 
   return 0;

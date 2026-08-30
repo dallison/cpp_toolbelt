@@ -1,5 +1,7 @@
 #include "toolbelt/sockets.h"
 
+#include <limits>
+
 int main(int argc, char *argv[]) {
   // TCP socket sender.
   // 3 args:
@@ -20,7 +22,13 @@ int main(int argc, char *argv[]) {
   if (protocol == "tcp") {
     addr = toolbelt::InetAddress(address, port);
   } else if (protocol == "vm") {
-    addr = toolbelt::VirtualAddress(std::atoi(address.c_str()), port);
+    const unsigned long cid = std::stoul(address);
+    if (cid > std::numeric_limits<uint32_t>::max() || port < 0) {
+      std::cerr << "VM CID and port must fit in uint32_t" << std::endl;
+      return 1;
+    }
+    addr = toolbelt::VirtualAddress(static_cast<uint32_t>(cid),
+                                    static_cast<uint32_t>(port));
   } else {
     std::cerr << "Unknown protocol: " << protocol << std::endl;
     return 1;

@@ -2,6 +2,7 @@
 #include "toolbelt/hexdump.h"
 #include "toolbelt/payload_buffer.h"
 #include <cstddef>
+#include <cstdlib>
 #include <gtest/gtest.h>
 #include <limits>
 #include <sstream>
@@ -12,7 +13,7 @@ using VectorHeader = toolbelt::VectorHeader;
 using Resizer = toolbelt::Resizer;
 
 TEST(BufferTest, Simple) {
-  char *buffer = (char *)calloc(1, 4096);
+  char *buffer = static_cast<char *>(calloc(1, 4096));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
   pb->Dump(std::cout);
   toolbelt::Hexdump(pb, 64);
@@ -26,7 +27,7 @@ TEST(BufferTest, Simple) {
 }
 
 TEST(BufferTest, TwoAllocs) {
-  char *buffer = (char *)calloc(1, 4096);
+  char *buffer = static_cast<char *>(calloc(1, 4096));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
   pb->Dump(std::cout);
   toolbelt::Hexdump(pb, 64);
@@ -46,7 +47,7 @@ TEST(BufferTest, TwoAllocs) {
 }
 
 TEST(BufferTest, Free) {
-  char *buffer = (char *)calloc(1, 4096);
+  char *buffer = static_cast<char *>(calloc(1, 4096));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
   pb->Dump(std::cout);
   toolbelt::Hexdump(pb, 64);
@@ -69,7 +70,7 @@ TEST(BufferTest, Free) {
 }
 
 TEST(BufferTest, FreeThenAlloc) {
-  char *buffer = (char *)calloc(1, 4096);
+  char *buffer = static_cast<char *>(calloc(1, 4096));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
   pb->Dump(std::cout);
   toolbelt::Hexdump(pb, 64);
@@ -96,7 +97,7 @@ TEST(BufferTest, FreeThenAlloc) {
 }
 
 TEST(BufferTest, SmallBlockAllocSimple) {
-  char *buffer = (char *)calloc(1, 4096);
+  char *buffer = static_cast<char *>(calloc(1, 4096));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
 
   void *addr = PayloadBuffer::Allocate(&pb, 16);
@@ -112,7 +113,7 @@ TEST(BufferTest, SmallBlockAllocSimple) {
 }
 
 TEST(BufferTest, SmallBlockAlloc) {
-  char *buffer = (char *)calloc(1, 8192);
+  char *buffer = static_cast<char *>(calloc(1, 8192));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(8192);
 
   // Small block sizes are 16, 32, 64 and 128.
@@ -147,15 +148,15 @@ TEST(BufferTest, SmallBlockAlloc) {
 }
 
 TEST(BufferTest, SmallBlockAllocFree) {
-  char *buffer = (char *)calloc(1, 8192);
+  char *buffer = static_cast<char *>(calloc(1, 8192));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(8192);
 
   // Do a mix of sizes and free them.
   std::vector<void *> blocks;
   std::vector<size_t> sizes = {10, 30, 50, 100, 150};
   for (int i = 0; i < 50; i++) {
-    size_t size = sizes[i % sizes.size()];
-    void *addr = PayloadBuffer::Allocate(&pb, size);
+    size_t size = sizes[static_cast<size_t>(i) % sizes.size()];
+    void *addr = PayloadBuffer::Allocate(&pb, static_cast<uint32_t>(size));
     memset(addr, 0xda, size);
     blocks.push_back(addr);
   }
@@ -168,8 +169,8 @@ TEST(BufferTest, SmallBlockAllocFree) {
   // Now allocate every 5th block again.
   for (size_t i = 0; i < blocks.size(); i++) {
     if (i % 5 == 0) {
-      size_t size = sizes[i % sizes.size()];
-      void *addr = PayloadBuffer::Allocate(&pb, size);
+      size_t size = sizes[static_cast<size_t>(i) % sizes.size()];
+      void *addr = PayloadBuffer::Allocate(&pb, static_cast<uint32_t>(size));
       memset(addr, 0xda, size);
       blocks[i] = addr;
     }
@@ -185,7 +186,7 @@ TEST(BufferTest, PrimeBitmapAllocatorReserveFailureReclaimsVectorHeader) {
   constexpr size_t kReserveAllocationSize =
       8 * sizeof(BufferOffset) + sizeof(uint64_t);
   constexpr size_t kSize = sizeof(PayloadBuffer) + kReserveAllocationSize;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
   const BufferOffset initial_free_list = pb->free_list;
@@ -214,7 +215,7 @@ TEST(BufferTest, PrimeBitmapAllocatorRunFailureRollsBackInitialization) {
   constexpr size_t kSize =
       sizeof(PayloadBuffer) + kVectorHeaderAllocationSize +
       kReserveAllocationSize + sizeof(toolbelt::FreeBlockHeader);
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
   const BufferOffset initial_free_list = pb->free_list;
@@ -245,7 +246,7 @@ TEST(BufferTest, LazyBitmapAllocatorRunFailureRollsBackInitialization) {
   constexpr size_t kSize =
       sizeof(PayloadBuffer) + kVectorHeaderAllocationSize +
       kReserveAllocationSize + sizeof(toolbelt::FreeBlockHeader);
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
   const BufferOffset initial_free_list = pb->free_list;
@@ -270,7 +271,7 @@ TEST(BufferTest, LazyBitmapAllocatorRunFailureRollsBackInitialization) {
 
 TEST(BufferTest, BitmapRunGrowthFailureReclaimsUnappendedRun) {
   constexpr size_t kSize = 8192;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
   ASSERT_TRUE(
@@ -319,7 +320,8 @@ TEST(BufferTest, BitmapRunGrowthFailureReclaimsUnappendedRun) {
   const size_t drain_size =
       free_block->length - run_allocation_size - sizeof(uint64_t);
   ASSERT_EQ(0u, drain_size % sizeof(uint64_t));
-  ASSERT_NE(nullptr, PayloadBuffer::Allocate(&pb, drain_size, false, false));
+  ASSERT_NE(nullptr, PayloadBuffer::Allocate(&pb, static_cast<uint32_t>(drain_size),
+                                             false, false));
 
   const BufferOffset initial_free_list = pb->free_list;
   free_block = pb->FreeList();
@@ -357,7 +359,7 @@ TEST(BufferTest, BestCasePerformance) {
   constexpr int kIterations = 10000;
 
   for (int iter = 0; iter < kIterations; iter++) {
-    char *buffer = (char *)calloc(1, kSize);
+    char *buffer = static_cast<char *>(calloc(1, kSize));
     PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
     ASSERT_TRUE(PayloadBuffer::PrimeBitmapAllocator(&pb, 16));
@@ -402,7 +404,7 @@ TEST(BufferTest, BestCasePerformance) {
 
     // New buffer.
     free(buffer);
-    buffer = (char *)calloc(1, kSize);
+    buffer = static_cast<char *>(calloc(1, kSize));
     pb = new (buffer) PayloadBuffer(kSize);
 
     // Now allocate by disabling the small block allocator.
@@ -466,11 +468,11 @@ TEST(BufferTest, TypicalPerformance) {
   std::vector<size_t> sizes;
   // Random sizes up to 128
   for (int i = 0; i < kNumBlocks; i++) {
-    sizes.push_back((rand() % 127) + 1);
+    sizes.push_back(static_cast<size_t>((rand() % 127) + 1));
   }
 
   for (int iter = 0; iter < kIterations; iter++) {
-    char *buffer = (char *)calloc(1, kSize);
+    char *buffer = static_cast<char *>(calloc(1, kSize));
     PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
     // No priming the small block allocator for this test.  It probably won't
@@ -480,13 +482,13 @@ TEST(BufferTest, TypicalPerformance) {
     std::vector<void *> small_blocks;
     uint64_t small_start = toolbelt::Now();
     for (int j = 0; j < 1000; j++) {
-      int prev_size = int(small_blocks.size());
+      const int prev_size = static_cast<int>(small_blocks.size());
       for (int i = 0; i < kNumBlocks; i++) {
         void *addr = PayloadBuffer::Allocate(&pb, 10, false);
         small_blocks.push_back(addr);
       }
       // Free some of the blocks.
-      for (size_t i = prev_size; i < small_blocks.size(); i++) {
+      for (size_t i = static_cast<size_t>(prev_size); i < small_blocks.size(); i++) {
         if (i % 8 == 0) {
           continue;
         }
@@ -500,21 +502,21 @@ TEST(BufferTest, TypicalPerformance) {
 
     // New buffer.
     free(buffer);
-    buffer = (char *)calloc(1, kSize);
+    buffer = static_cast<char *>(calloc(1, kSize));
     pb = new (buffer) PayloadBuffer(kSize);
 
     // Switch off small block alloctor.
     std::vector<void *> large_blocks;
     uint64_t large_start = toolbelt::Now();
     for (int j = 0; j < 1000; j++) {
-      int prev_size = int(large_blocks.size());
+      const int prev_size = static_cast<int>(large_blocks.size());
       for (int i = 0; i < kNumBlocks; i++) {
         void *addr = PayloadBuffer::Allocate(&pb, 10, false,
                                              /*enable_small_block=*/false);
         large_blocks.push_back(addr);
       }
       // Free some of the blocks.
-      for (size_t i = prev_size; i < large_blocks.size(); i++) {
+      for (size_t i = static_cast<size_t>(prev_size); i < large_blocks.size(); i++) {
         if (i % 8 == 0) {
           continue;
         }
@@ -536,11 +538,11 @@ TEST(BufferTest, TypicalPerformance) {
 
 TEST(BufferTest, Many) {
   constexpr size_t kSize = 8192;
-  char *buffer = (char *)calloc(1, kSize);
+  char *buffer = static_cast<char *>(calloc(1, kSize));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
   std::vector<void *> addrs = PayloadBuffer::AllocateMany(&pb, 100, 10, true);
-  ASSERT_EQ(10, addrs.size());
+  ASSERT_EQ(size_t{10}, addrs.size());
   // Print the addresses.
   for (auto addr : addrs) {
     std::cout << "Allocated " << addr << std::endl;
@@ -558,7 +560,7 @@ TEST(BufferTest, Many) {
 }
 
 TEST(BufferTest, String) {
-  char *buffer = (char *)calloc(1, 4096);
+  char *buffer = static_cast<char *>(calloc(1, 4096));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
 
   // Allocate space for a message containing an offset for the string.
@@ -571,14 +573,14 @@ TEST(BufferTest, String) {
   BufferOffset offset = pb->ToOffset(addr);
 
   char *s = PayloadBuffer::SetString(&pb, std::string("foobar"), offset);
-  std::cout << "String allocated at " << (void *)s << std::endl;
+  std::cout << "String allocated at " << static_cast<void *>(s) << std::endl;
 
   toolbelt::Hexdump(pb, pb->hwm);
 
   // Now put in a bigger string, replacing the old one.
   s = PayloadBuffer::SetString(&pb, std::string("foobar has been replaced"),
                                offset);
-  std::cout << "New string allocated at " << (void *)s << std::endl;
+  std::cout << "New string allocated at " << static_cast<void *>(s) << std::endl;
 
   toolbelt::Hexdump(pb, pb->hwm);
 
@@ -588,7 +590,7 @@ TEST(BufferTest, String) {
 }
 
 TEST(BufferTest, Vector) {
-  char *buffer = (char *)calloc(1, 4096);
+  char *buffer = static_cast<char *>(calloc(1, 4096));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
 
   // Allocate space for a message containing the VectorHeader.
@@ -604,13 +606,13 @@ TEST(BufferTest, Vector) {
   toolbelt::Hexdump(pb, pb->hwm);
 
   uint32_t v = pb->VectorGet<uint32_t>(hdr, 0);
-  ASSERT_EQ(0x12345678, v);
+  ASSERT_EQ(uint32_t{0x12345678}, v);
 
   free(buffer);
 }
 
 TEST(BufferTest, VectorExpand) {
-  char *buffer = (char *)calloc(1, 4096);
+  char *buffer = static_cast<char *>(calloc(1, 4096));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
 
   // Allocate space for a message containing the VectorHeader.
@@ -623,21 +625,21 @@ TEST(BufferTest, VectorExpand) {
   pb->Dump(std::cout);
 
   for (int i = 0; i < 3; i++) {
-    PayloadBuffer::VectorPush<uint32_t>(&pb, hdr, i + 1);
+    PayloadBuffer::VectorPush<uint32_t>(&pb, hdr, static_cast<uint32_t>(i + 1));
   }
   toolbelt::Hexdump(pb, pb->hwm);
 
   pb->Dump(std::cout);
   for (int i = 0; i < 3; i++) {
-    uint32_t v = pb->VectorGet<uint32_t>(hdr, i);
-    ASSERT_EQ(i + 1, v);
+    const uint32_t v = pb->VectorGet<uint32_t>(hdr, static_cast<size_t>(i));
+    ASSERT_EQ(static_cast<uint32_t>(i + 1), v);
   }
 
   free(buffer);
 }
 
 TEST(BufferTest, VectorExpandMore) {
-  char *buffer = (char *)calloc(1, 4096);
+  char *buffer = static_cast<char *>(calloc(1, 4096));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
 
   // Allocate space for a message containing the VectorHeader.
@@ -650,15 +652,15 @@ TEST(BufferTest, VectorExpandMore) {
   pb->Dump(std::cout);
 
   for (int i = 0; i < 100; i++) {
-    PayloadBuffer::VectorPush<uint32_t>(&pb, hdr, i + 1);
-    uint32_t v = pb->VectorGet<uint32_t>(hdr, i);
-    ASSERT_EQ(i + 1, v);
+    PayloadBuffer::VectorPush<uint32_t>(&pb, hdr, static_cast<uint32_t>(i + 1));
+    const uint32_t v = pb->VectorGet<uint32_t>(hdr, static_cast<size_t>(i));
+    ASSERT_EQ(static_cast<uint32_t>(i + 1), v);
   }
   toolbelt::Hexdump(pb, pb->hwm);
 
   for (int i = 0; i < 100; i++) {
-    uint32_t v = pb->VectorGet<uint32_t>(hdr, i);
-    ASSERT_EQ(i + 1, v);
+    const uint32_t v = pb->VectorGet<uint32_t>(hdr, static_cast<size_t>(i));
+    ASSERT_EQ(static_cast<uint32_t>(i + 1), v);
   }
   pb->Dump(std::cout);
 
@@ -666,21 +668,16 @@ TEST(BufferTest, VectorExpandMore) {
 }
 
 TEST(BufferTest, VectorPushWithResize) {
-  char *buffer = (char *)calloc(256, 1);
+  char *buffer = static_cast<char *>(calloc(256, 1));
   bool resized = false;
   PayloadBuffer *pb = new (buffer) PayloadBuffer(
       256, [&resized, &buffer](PayloadBuffer **p, size_t, size_t new_size) {
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wclass-memaccess"
-#elif defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
         *p = reinterpret_cast<PayloadBuffer *>(realloc(*p, new_size));
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
         buffer = reinterpret_cast<char *>(*p);
@@ -693,15 +690,15 @@ TEST(BufferTest, VectorPushWithResize) {
   constexpr int kCount = 200;
   for (int i = 0; i < kCount; i++) {
     VectorHeader *hdr = pb->ToAddress<VectorHeader>(msg_offset);
-    PayloadBuffer::VectorPush<uint32_t>(&pb, hdr, i + 1);
+    PayloadBuffer::VectorPush<uint32_t>(&pb, hdr, static_cast<uint32_t>(i + 1));
   }
   ASSERT_TRUE(resized);
 
   VectorHeader *hdr = pb->ToAddress<VectorHeader>(msg_offset);
-  ASSERT_EQ(kCount, hdr->num_elements);
+  ASSERT_EQ(static_cast<uint32_t>(kCount), hdr->num_elements);
   for (int i = 0; i < kCount; i++) {
-    uint32_t v = pb->VectorGet<uint32_t>(hdr, i);
-    ASSERT_EQ(i + 1, v);
+    const uint32_t v = pb->VectorGet<uint32_t>(hdr, static_cast<size_t>(i));
+    ASSERT_EQ(static_cast<uint32_t>(i + 1), v);
   }
 
   pb->~PayloadBuffer();
@@ -709,21 +706,16 @@ TEST(BufferTest, VectorPushWithResize) {
 }
 
 TEST(BufferTest, VectorReserveWithResize) {
-  char *buffer = (char *)calloc(256, 1);
+  char *buffer = static_cast<char *>(calloc(256, 1));
   bool resized = false;
   PayloadBuffer *pb = new (buffer) PayloadBuffer(
       256, [&resized, &buffer](PayloadBuffer **p, size_t, size_t new_size) {
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wclass-memaccess"
-#elif defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
         *p = reinterpret_cast<PayloadBuffer *>(realloc(*p, new_size));
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
         buffer = reinterpret_cast<char *>(*p);
@@ -745,21 +737,16 @@ TEST(BufferTest, VectorReserveWithResize) {
 }
 
 TEST(BufferTest, VectorResizeWithResize) {
-  char *buffer = (char *)calloc(256, 1);
+  char *buffer = static_cast<char *>(calloc(256, 1));
   bool resized = false;
   PayloadBuffer *pb = new (buffer) PayloadBuffer(
       256, [&resized, &buffer](PayloadBuffer **p, size_t, size_t new_size) {
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wclass-memaccess"
-#elif defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
         *p = reinterpret_cast<PayloadBuffer *>(realloc(*p, new_size));
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
         buffer = reinterpret_cast<char *>(*p);
@@ -782,7 +769,7 @@ TEST(BufferTest, VectorResizeWithResize) {
 
 TEST(BufferTest, EmptyVectorZeroSizeOperationsSucceed) {
   constexpr size_t kSize = 256;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize, false);
 
   ASSERT_NE(nullptr,
@@ -799,7 +786,7 @@ TEST(BufferTest, EmptyVectorZeroSizeOperationsSucceed) {
 
 TEST(BufferTest, VectorPushFixedBufferAllocationFailurePreservesHeader) {
   constexpr size_t kSize = 256;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize, false);
 
   ASSERT_NE(nullptr,
@@ -826,7 +813,7 @@ TEST(BufferTest, VectorPushFixedBufferAllocationFailurePreservesHeader) {
 
 TEST(BufferTest, VectorPushFixedBufferGrowthFailurePreservesHeader) {
   constexpr size_t kSize = 256;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize, false);
 
   ASSERT_NE(nullptr,
@@ -861,7 +848,7 @@ TEST(BufferTest, VectorPushFixedBufferGrowthFailurePreservesHeader) {
 
 TEST(BufferTest, VectorReserveFixedBufferFailurePreservesHeader) {
   constexpr size_t kSize = 256;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize, false);
 
   ASSERT_NE(nullptr,
@@ -889,7 +876,7 @@ TEST(BufferTest, VectorReserveFixedBufferFailurePreservesHeader) {
 
 TEST(BufferTest, VectorResizeFixedBufferFailurePreservesHeader) {
   constexpr size_t kSize = 256;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize, false);
 
   ASSERT_NE(nullptr,
@@ -920,22 +907,17 @@ TEST(BufferTest, VectorResizeFixedBufferFailurePreservesHeader) {
 }
 
 TEST(BufferTest, Resizeable) {
-  char *buffer = (char *)calloc(1, 512);
+  char *buffer = static_cast<char *>(calloc(1, 512));
   bool resized = false;
   PayloadBuffer *pb = new (buffer) PayloadBuffer(
       256, [&resized](PayloadBuffer **p, size_t, size_t new_size) {
         std::cout << "resize for " << new_size << std::endl;
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wclass-memaccess"
-#elif defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
         *p = reinterpret_cast<PayloadBuffer *>(realloc(*p, new_size));
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
         resized = true;
@@ -971,7 +953,7 @@ TEST(BufferTest, Resizeable) {
 
 TEST(BufferTest, ToAddressRejectsTypedReadPastEnd) {
   constexpr size_t kSize = 4096;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
   EXPECT_EQ(pb->ToAddress<uint32_t>(kSize - 2), nullptr);
@@ -982,7 +964,7 @@ TEST(BufferTest, ToAddressRejectsTypedReadPastEnd) {
 
 TEST(BufferTest, StringHelpersRejectLengthHeaderPastEnd) {
   constexpr size_t kSize = 4093;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
   toolbelt::StringHeader header = static_cast<BufferOffset>(4092);
@@ -995,7 +977,7 @@ TEST(BufferTest, StringHelpersRejectLengthHeaderPastEnd) {
 
 TEST(BufferTest, StringSizeRejectsBodyPastEnd) {
   constexpr size_t kSize = 4096;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
   toolbelt::StringHeader header =
@@ -1011,7 +993,7 @@ TEST(BufferTest, StringSizeRejectsBodyPastEnd) {
 
 TEST(BufferTest, EmptyStringAtBufferTailAccepted) {
   constexpr size_t kSize = 4096;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
   toolbelt::StringHeader header =
@@ -1028,7 +1010,7 @@ TEST(BufferTest, EmptyStringAtBufferTailAccepted) {
 }
 
 TEST(BufferTest, StringWithinBoundsAcceptsValidString) {
-  char *buffer = (char *)calloc(4096, 1);
+  char *buffer = static_cast<char *>(calloc(4096, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
 
   PayloadBuffer::AllocateMainMessage(&pb, 32);
@@ -1041,7 +1023,7 @@ TEST(BufferTest, StringWithinBoundsAcceptsValidString) {
 }
 
 TEST(BufferTest, StringWithinBoundsAcceptsUnsetString) {
-  char *buffer = (char *)calloc(4096, 1);
+  char *buffer = static_cast<char *>(calloc(4096, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
 
   PayloadBuffer::AllocateMainMessage(&pb, sizeof(BufferOffset));
@@ -1053,7 +1035,7 @@ TEST(BufferTest, StringWithinBoundsAcceptsUnsetString) {
 
 TEST(BufferTest, SetStringFixedBufferFailurePreservesHeader) {
   constexpr uint32_t kBufferSize = 4096;
-  char *buffer = (char *)calloc(kBufferSize, 1);
+  char *buffer = static_cast<char *>(calloc(kBufferSize, 1));
   PayloadBuffer *pb =
       new (buffer) PayloadBuffer(kBufferSize, /*bitmap_allocator=*/false);
   PayloadBuffer::AllocateMainMessage(&pb, sizeof(toolbelt::StringHeader));
@@ -1076,7 +1058,7 @@ TEST(BufferTest, SetStringFixedBufferFailurePreservesHeader) {
 
 TEST(BufferTest, StringReallocFixedBufferFailurePreservesValue) {
   constexpr uint32_t kBufferSize = 4096;
-  char *buffer = (char *)calloc(kBufferSize, 1);
+  char *buffer = static_cast<char *>(calloc(kBufferSize, 1));
   PayloadBuffer *pb =
       new (buffer) PayloadBuffer(kBufferSize, /*bitmap_allocator=*/false);
   PayloadBuffer::AllocateMainMessage(&pb, sizeof(toolbelt::StringHeader));
@@ -1107,7 +1089,7 @@ TEST(BufferTest, StringReallocFixedBufferFailurePreservesValue) {
 }
 
 TEST(BufferTest, StringWithinBoundsRejectsNullHeader) {
-  char *buffer = (char *)calloc(4096, 1);
+  char *buffer = static_cast<char *>(calloc(4096, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
 
   EXPECT_FALSE(
@@ -1117,7 +1099,7 @@ TEST(BufferTest, StringWithinBoundsRejectsNullHeader) {
 }
 
 TEST(BufferTest, StringReadersReturnEmptyForNullHeader) {
-  char *buffer = (char *)calloc(4096, 1);
+  char *buffer = static_cast<char *>(calloc(4096, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
 
   const toolbelt::StringHeader *header = nullptr;
@@ -1132,7 +1114,7 @@ TEST(BufferTest, StringReadersReturnEmptyForNullHeader) {
 
 TEST(BufferTest, StringReadersRejectHeaderOffsetPastEnd) {
   constexpr size_t kSize = 4096;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
   const BufferOffset straddling = static_cast<BufferOffset>(kSize - 2);
@@ -1154,7 +1136,7 @@ TEST(BufferTest, StringReadersRejectHeaderOffsetPastEnd) {
 
 TEST(BufferTest, StringWritersRejectHeaderOffsetPastEnd) {
   constexpr size_t kSize = 4096;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb =
       new (buffer) PayloadBuffer(kSize, /*bitmap_allocator=*/false);
   const uint32_t free_len = pb->FreeList()->length;
@@ -1178,7 +1160,7 @@ TEST(BufferTest, StringWritersRejectHeaderOffsetPastEnd) {
 
 TEST(BufferTest, AllocateStringReturnsWritableSpanAndStoresOffset) {
   constexpr size_t kSize = 4096;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb =
       new (buffer) PayloadBuffer(kSize, /*bitmap_allocator=*/false);
   PayloadBuffer::AllocateMainMessage(&pb, sizeof(toolbelt::StringHeader));
@@ -1202,7 +1184,7 @@ TEST(BufferTest, AllocateStringReturnsWritableSpanAndStoresOffset) {
 
 TEST(BufferTest, StringWithinBoundsRejectsBodyOffsetPastEnd) {
   constexpr size_t kSize = 4096;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
   toolbelt::StringHeader header = static_cast<BufferOffset>(kSize - 2);
@@ -1214,7 +1196,7 @@ TEST(BufferTest, StringWithinBoundsRejectsBodyOffsetPastEnd) {
 
 TEST(BufferTest, StringWithinBoundsRejectsBodyPastEnd) {
   constexpr size_t kSize = 4096;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
   toolbelt::StringHeader header =
@@ -1229,7 +1211,7 @@ TEST(BufferTest, StringWithinBoundsRejectsBodyPastEnd) {
 
 TEST(BufferTest, VectorGetRejectsIndexPastEnd) {
   constexpr size_t kSize = 4096;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
   VectorHeader hdr;
@@ -1243,7 +1225,7 @@ TEST(BufferTest, VectorGetRejectsIndexPastEnd) {
 
 TEST(BufferTest, ToOffsetAndToAddressAgreeOnTrailingExtent) {
   constexpr size_t kSize = 4096;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
   uint32_t *p =
@@ -1257,7 +1239,7 @@ TEST(BufferTest, ToOffsetAndToAddressAgreeOnTrailingExtent) {
 
 TEST(BufferTest, ToAddressVoidStartOnlyBoundary) {
   constexpr size_t kSize = 4096;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
 
   EXPECT_NE(pb->ToAddress<void>(kSize - 1), nullptr);
@@ -1268,9 +1250,9 @@ TEST(BufferTest, ToAddressVoidStartOnlyBoundary) {
 
 TEST(BufferTest, ToAddressAndToOffsetRejectOutOfRangeInputs) {
   constexpr size_t kSize = 4096;
-  char *buffer = (char *)calloc(kSize, 1);
+  char *buffer = static_cast<char *>(calloc(kSize, 1));
   PayloadBuffer *pb = new (buffer) PayloadBuffer(kSize);
-  char *other_buffer = (char *)calloc(kSize, 1);
+  char *other_buffer = static_cast<char *>(calloc(kSize, 1));
 
   const BufferOffset far_offset = std::numeric_limits<BufferOffset>::max();
   EXPECT_EQ(pb->ToAddress<uint32_t>(far_offset), nullptr);

@@ -18,7 +18,7 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include "co/coroutine.h"
+#include "toolbelt/coroutine.h"
 
 namespace toolbelt {
 
@@ -93,7 +93,7 @@ public:
   bool IsATTY() const { return Valid() && isatty(data_->fd); }
 
   // Current reference count.
-  int RefCount() const { return data_ == nullptr ? 0 : data_.use_count(); }
+  long RefCount() const { return data_ == nullptr ? 0 : data_.use_count(); }
 
   // Construct and return a struct pollfd suitable for use in ::poll.
   struct pollfd GetPollFd() {

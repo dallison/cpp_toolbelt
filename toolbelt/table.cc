@@ -4,13 +4,17 @@
 
 #include "toolbelt/table.h"
 #include "absl/strings/str_format.h"
+#include <algorithm>
 #include <iomanip>
+#include <limits>
 
 namespace toolbelt {
 Table::Table(
     const std::vector<std::string> titles, ssize_t sort_column,
     std::function<bool(const std::string &, const std::string &)> comp) {
-  SortBy(sort_column, comp);
+  SortBy(sort_column < 0 ? std::numeric_limits<size_t>::max()
+                         : static_cast<size_t>(sort_column),
+         comp);
   for (auto &title : titles) {
     cols_.push_back({.title = title});
   }
@@ -62,7 +66,7 @@ void Table::AddCell(size_t col, const Cell &cell) {
 }
 
 void Table::Print(int width, std::ostream &os) {
-  if (width == 0) {
+  if (width <= 1) {
     width = 80;
   }
   width -= 1; // Allow space for newline.
@@ -74,7 +78,7 @@ void Table::Print(int width, std::ostream &os) {
   for (auto &col : cols_) {
     std::string title = col.title;
     if (title.size() > static_cast<size_t>(col.width)) {
-      title = title.substr(0, col.width - 1);
+      title = title.substr(0, static_cast<size_t>(col.width) - 1);
     }
     os << std::left << std::setw(col.width) << std::setfill(' ') << title;
   }
@@ -83,12 +87,12 @@ void Table::Print(int width, std::ostream &os) {
   os << std::setw(width) << std::setfill('-') << "" << std::endl;
 
   // Print each row.
-  for (int i = 0; i < num_rows_; i++) {
+  for (size_t i = 0; i < num_rows_; i++) {
     for (auto &col : cols_) {
       std::string data = col.cells[i].data;
       if (data.size() > static_cast<size_t>(col.width)) {
         // Truncate if too wide.
-        data = data.substr(0, col.width - 1);
+        data = data.substr(0, static_cast<size_t>(col.width) - 1);
       }
       os << std::left << color::SetColor(col.cells[i].color)
          << std::setw(col.width) << std::setfill(' ') << data
@@ -106,9 +110,12 @@ void Table::Clear() {
 }
 
 void Table::Render(int width) {
+  if (cols_.empty()) {
+    return;
+  }
   std::vector<size_t> max_widths(cols_.size());
-  for (int i = 0; i < num_rows_; i++) {
-    int col_index = 0;
+  for (size_t i = 0; i < num_rows_; i++) {
+    size_t col_index = 0;
     for (auto &col : cols_) {
       if (col.cells[i].data.size() > max_widths[col_index]) {
         max_widths[col_index] = col.cells[i].data.size();
@@ -121,18 +128,26 @@ void Table::Render(int width) {
     total_width += w;
   }
   // Pad the column widths out to the width we have.
-  ssize_t padding = width - total_width;
-  padding /= cols_.size();
-  int index = 0;
+  const size_t available_width =
+      width > 0 ? static_cast<size_t>(width) : size_t{0};
+  const size_t padding =
+      total_width < available_width
+          ? (available_width - total_width) / cols_.size()
+          : size_t{0};
+  size_t index = 0;
   for (auto &col : cols_) {
-    col.width = max_widths[index] + padding;
+    const size_t desired_width = std::max(size_t{1}, max_widths[index] + padding);
+    col.width = static_cast<int>(
+        std::min(desired_width,
+                 static_cast<size_t>(std::numeric_limits<int>::max())));
     index++;
   }
   Sort();
 }
 
 void Table::Sort() {
-  if (sort_column_ == -1ULL || sort_column_ >= cols_.size()) {
+  if (sort_column_ == std::numeric_limits<size_t>::max() ||
+      sort_column_ >= cols_.size()) {
     return;
   }
   struct Index {
@@ -140,8 +155,8 @@ void Table::Sort() {
     std::string data;
   };
   std::vector<Index> index(num_rows_);
-  for (int i = 0; i < num_rows_; i++) {
-    index[i] = {.row = static_cast<size_t>(i), .data = cols_[sort_column_].cells[i].data};
+  for (size_t i = 0; i < num_rows_; i++) {
+    index[i] = {.row = i, .data = cols_[sort_column_].cells[i].data};
   }
   std::sort(index.begin(), index.end(), [this](const Index &a, const Index &b) {
     return sorter_(a.data, b.data);

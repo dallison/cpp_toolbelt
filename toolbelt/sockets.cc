@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <limits>
 #include <string>
 
 #include "absl/strings/str_format.h"
@@ -56,7 +57,9 @@ InetAddress::InetAddress(const std::string &hostname, int port) {
   struct hostent *entry = gethostbyname(hostname.c_str());
   in_addr_t ipaddr;
   if (entry != NULL) {
-    ipaddr = ((struct in_addr *)entry->h_addr_list[0])->s_addr;
+    const struct in_addr *in_addr_ptr =
+        reinterpret_cast<const struct in_addr *>(entry->h_addr_list[0]);
+    ipaddr = in_addr_ptr->s_addr;
   } else {
     // No hostname found, try IP address.
     if (inet_pton(AF_INET, hostname.c_str(), &ipaddr) != 1) {
@@ -159,7 +162,11 @@ std::string VirtualAddress::ToString() const {
 
 static ssize_t ReceiveFully(const co::Coroutine *c, int fd, size_t length,
                             char *buffer, size_t buflen) {
-  int offset = 0;
+  if (length > static_cast<size_t>(std::numeric_limits<ssize_t>::max())) {
+    errno = EINVAL;
+    return -1;
+  }
+  size_t offset = 0;
   size_t remaining = length;
   while (remaining > 0) {
     size_t readlen = std::min(remaining, buflen);
@@ -187,14 +194,18 @@ static ssize_t ReceiveFully(const co::Coroutine *c, int fd, size_t length,
       // Short read.
       return 0;
     }
-    remaining -= n;
-    offset += n;
+    remaining -= static_cast<size_t>(n);
+    offset += static_cast<size_t>(n);
   }
-  return length;
+  return static_cast<ssize_t>(length);
 }
 
 static ssize_t SendFully(const co::Coroutine *c, int fd, const char *buffer,
                          size_t length, bool blocking) {
+  if (length > static_cast<size_t>(std::numeric_limits<ssize_t>::max())) {
+    errno = EINVAL;
+    return -1;
+  }
   size_t remaining = length;
   size_t offset = 0;
   while (remaining > 0) {
@@ -235,10 +246,10 @@ static ssize_t SendFully(const co::Coroutine *c, int fd, const char *buffer,
       // EOF on write.
       return -1;
     }
-    remaining -= n;
-    offset += n;
+    remaining -= static_cast<size_t>(n);
+    offset += static_cast<size_t>(n);
   }
-  return length;
+  return static_cast<ssize_t>(length);
 }
 
 absl::StatusOr<ssize_t> Socket::Receive(char *buffer, size_t buflen,
@@ -293,7 +304,9 @@ absl::StatusOr<ssize_t> Socket::ReceiveMessage(char *buffer, size_t buflen,
     return absl::InternalError(absl::StrFormat(
         "Failed to read length from socket %d: %s", fd_.Fd(), strerror(errno)));
   }
-  size_t length = ntohl(*reinterpret_cast<int32_t *>(lenbuf));
+  uint32_t encoded_length = 0;
+  std::memcpy(&encoded_length, lenbuf, sizeof(encoded_length));
+  const size_t length = ntohl(encoded_length);
   n = ReceiveFully(c, fd_.Fd(), length, buffer, buflen);
   if (n == -1) {
     return absl::InternalError(absl::StrFormat(
@@ -326,7 +339,9 @@ Socket::ReceiveVariableLengthMessage(const co::Coroutine *c) {
     return absl::InternalError(absl::StrFormat(
         "Failed to read length from socket %d: %s", fd_.Fd(), strerror(errno)));
   }
-  size_t length = ntohl(*reinterpret_cast<int32_t *>(lenbuf));
+  uint32_t encoded_length = 0;
+  std::memcpy(&encoded_length, lenbuf, sizeof(encoded_length));
+  const size_t length = ntohl(encoded_length);
   std::vector<char> buffer(length);
 
   n = ReceiveFully(c, fd_.Fd(), length, buffer.data(), buffer.size());
@@ -342,12 +357,19 @@ absl::StatusOr<ssize_t> Socket::SendMessage(char *buffer, size_t length,
   if (!Connected()) {
     return absl::InternalError("Socket is not connected");
   }
+  if (length > std::numeric_limits<uint32_t>::max() ||
+      length >
+          static_cast<size_t>(std::numeric_limits<ssize_t>::max()) -
+              sizeof(uint32_t)) {
+    return absl::InvalidArgumentError("Message is too large");
+  }
   // Insert length in network byte order immediately before
   // the address passed as the buffer.
-  int32_t *lengthptr = reinterpret_cast<int32_t *>(buffer) - 1;
-  *lengthptr = htonl(length);
-  ssize_t n = SendFully(c, fd_.Fd(), reinterpret_cast<char *>(lengthptr),
-                        length + sizeof(int32_t), IsBlocking());
+  char *message_start = buffer - sizeof(uint32_t);
+  const uint32_t encoded_length = htonl(static_cast<uint32_t>(length));
+  std::memcpy(message_start, &encoded_length, sizeof(encoded_length));
+  ssize_t n = SendFully(c, fd_.Fd(), message_start,
+                        length + sizeof(encoded_length), IsBlocking());
   if (n == -1) {
     return absl::InternalError(
         absl::StrFormat("Failed to write to socket: %s", strerror(errno)));
@@ -497,7 +519,7 @@ absl::Status UnixSocket::SendFds(const std::vector<FileDescriptor> &fds,
       struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
       cmsg->cmsg_level = SOL_SOCKET;
       cmsg->cmsg_type = SCM_RIGHTS;
-      cmsg->cmsg_len = CMSG_LEN(fds_size);
+      cmsg->cmsg_len = static_cast<socklen_t>(CMSG_LEN(fds_size));
       int *fdptr = reinterpret_cast<int *>(CMSG_DATA(cmsg));
       for (size_t i = first_fd; i < first_fd + fds_to_send; i++) {
         *fdptr++ = fds[i].Fd();
@@ -510,7 +532,7 @@ absl::Status UnixSocket::SendFds(const std::vector<FileDescriptor> &fds,
         return absl::InternalError("Interrupted");
       }
     }
-    int e = ::sendmsg(fd_.Fd(), &msg, 0);
+    ssize_t e = ::sendmsg(fd_.Fd(), &msg, 0);
     if (e == -1) {
       return absl::InternalError(absl::StrFormat(
           "Failed to write fds to unix socket: %s", strerror(errno)));
@@ -936,7 +958,7 @@ absl::StatusOr<ssize_t> UDPSocket::ReceiveFrom(InetAddress &sender,
         absl::StrFormat("Unable to receive UDP datagram: %s", strerror(errno)));
   }
 #if defined(__APPLE__)
-  sender_addr.sin_len = sender_addr_length;
+  sender_addr.sin_len = static_cast<__uint8_t>(sender_addr_length);
 #endif
   sender = {sender_addr};
   return n;
@@ -1037,7 +1059,7 @@ VirtualStreamSocket::LocalAddress(uint32_t port) const {
   // If we cannot get the local CID, return ANY.
   int32_t cid = VMADDR_CID_ANY;
 #endif
-  return VirtualAddress(cid, port);
+  return VirtualAddress(static_cast<uint32_t>(cid), port);
 }
 
 absl::StatusOr<VirtualAddress> VirtualStreamSocket::GetPeerName() const {
