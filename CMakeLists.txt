@@ -35,19 +35,6 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(abseil)
 # Abseil provides targets like absl::base, absl::strings, etc.
 
-# --- External Dependency: co ---
-# cpp_toolbelt depends on co, so we need to fetch and make it available.
-FetchContent_Declare(
-    co
-    GIT_REPOSITORY https://github.com/dallison/co.git
-    GIT_TAG cf1252b2f5952d7cba83b67dd69288971c0a2b57
-    # Pass architecture settings to co's CMake build
-    CMAKE_ARGS
-        CMAKE_OSX_ARCHITECTURES="${CMAKE_OSX_ARCHITECTURES}"
-)
-FetchContent_MakeAvailable(co)
-# co provides the 'co' target.
-
 # --- toolbelt Library Target ---
 # Corresponds to //toolbelt:toolbelt in Bazel
 # Source files are omitted here for manual addition by the user.
@@ -67,6 +54,8 @@ add_library(toolbelt STATIC
     toolbelt/payload_buffer.h
     toolbelt/pipe.cc
     toolbelt/pipe.h
+    toolbelt/poller.cc
+    toolbelt/poller.h
     toolbelt/sockets.cc
     toolbelt/sockets.h
     toolbelt/table.cc
@@ -88,7 +77,6 @@ target_link_libraries(toolbelt PUBLIC
     absl::log # Added as it's used by toolbelt/logging
     absl::time # Added as it's used by toolbelt/time
     absl::synchronization # Added as it's used by toolbelt/utilities/thread_pool
-    co # Link against the co library
 )
 
 # Note: If there are tests in cpp_toolbelt, they would need a separate target

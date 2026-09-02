@@ -11,6 +11,7 @@ cc_library(
         "logging.cc",
         "payload_buffer.cc",
         "pipe.cc",
+        "poller.cc",
         "sockets.cc",
         "table.cc",
         "triggerfd.cc",
@@ -26,6 +27,7 @@ cc_library(
         "mutex.h",
         "payload_buffer.h",
         "pipe.h",
+        "poller.h",
         "sockets.h",
         "table.h",
         "triggerfd.h",
@@ -37,7 +39,6 @@ cc_library(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:str_format",
         "@abseil-cpp//absl/types:span",
-        "@coroutines//:co",
     ],
 )
 
@@ -91,6 +92,7 @@ cc_test(
         "@abseil-cpp//absl/status:status_matchers",
         "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
+        "@coroutines//:co",
     ],
 )
 
@@ -105,6 +107,7 @@ cc_test(
         "@abseil-cpp//absl/status:status_matchers",
         "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
+        "@coroutines//:co",
     ],
 )
 
