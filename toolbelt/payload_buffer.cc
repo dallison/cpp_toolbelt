@@ -1,5 +1,7 @@
 #include "toolbelt/payload_buffer.h"
+#include <algorithm>
 #include <assert.h>
+#include <utility>
 #include <vector>
 
 namespace toolbelt {
@@ -118,6 +120,56 @@ const char *PayloadBuffer::StringData(const StringHeader *addr) const {
     return nullptr;
   }
   return reinterpret_cast<const char *>(p + 1);
+}
+
+namespace {
+
+std::pair<const char *, size_t>
+BoundedString(const PayloadBuffer *buffer, BufferOffset header_offset,
+              size_t buffer_size) {
+  const BufferOffset *header =
+      buffer->ToAddress<const BufferOffset>(header_offset, buffer_size);
+  if (header == nullptr) {
+    return {nullptr, 0};
+  }
+  const uint32_t *length =
+      buffer->ToAddress<const uint32_t>(*header, buffer_size);
+  if (length == nullptr) {
+    return {nullptr, 0};
+  }
+  const size_t limit =
+      buffer_size != 0 ? buffer_size : size_t(buffer->full_size);
+  const char *data = reinterpret_cast<const char *>(length + 1);
+  const size_t data_offset =
+      static_cast<size_t>(data - reinterpret_cast<const char *>(buffer));
+  if (data_offset > limit) {
+    return {nullptr, 0};
+  }
+  return {data, std::min<size_t>(*length, limit - data_offset)};
+}
+
+}  // namespace
+
+std::string PayloadBuffer::GetString(BufferOffset header_offset,
+                                     size_t buffer_size) const {
+  auto [data, length] = BoundedString(this, header_offset, buffer_size);
+  return data == nullptr ? "" : std::string(data, length);
+}
+
+std::string_view PayloadBuffer::GetStringView(BufferOffset header_offset,
+                                              size_t buffer_size) const {
+  auto [data, length] = BoundedString(this, header_offset, buffer_size);
+  return data == nullptr ? std::string_view{} : std::string_view(data, length);
+}
+
+size_t PayloadBuffer::StringSize(BufferOffset header_offset,
+                                 size_t buffer_size) const {
+  return BoundedString(this, header_offset, buffer_size).second;
+}
+
+const char *PayloadBuffer::StringData(BufferOffset header_offset,
+                                      size_t buffer_size) const {
+  return BoundedString(this, header_offset, buffer_size).first;
 }
 
 absl::Span<char> PayloadBuffer::AllocateString(PayloadBuffer **self, size_t len,
@@ -264,8 +316,7 @@ void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
   for (;;) {
     if (free_block == nullptr) {
       // Out of memory.  If we have a resizer we can reallocate the buffer.
-      Resizer *resizer = (*buffer)->GetResizer();
-      if (resizer == nullptr) {
+      if (!(*buffer)->CanResize()) {
         // Really out of memory.
         return nullptr;
       }
@@ -276,7 +327,7 @@ void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
       }
 
       // Call the resizer.  This will move *buffer.
-      (*resizer)(buffer, old_size, new_size);
+      (*buffer)->Resize(buffer, old_size, new_size);
 
       // Set the new size in the newly allocated bigger buffer.
       (*buffer)->full_size = new_size;

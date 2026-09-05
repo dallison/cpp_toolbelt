@@ -9,6 +9,8 @@
 #include <string.h>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 
 namespace toolbelt {
 
@@ -61,6 +63,22 @@ using StringHeader = BufferOffset;
 // contents of the resizer function.
 using Resizer =
     std::function<void(PayloadBuffer **, size_t old_size, size_t new_size)>;
+
+// Allocation-free resizer callback stored outside the payload. The callback
+// and its context must outlive the PayloadBuffer. Call SetBorrowedResizer after
+// moving the callback state.
+struct BorrowedResizer {
+  using Function = void (*)(void *context, PayloadBuffer **buffer,
+                            size_t old_size, size_t new_size);
+
+  void *context = nullptr;
+  Function function = nullptr;
+
+  void operator()(PayloadBuffer **buffer, size_t old_size,
+                  size_t new_size) const {
+    function(context, buffer, old_size, new_size);
+  }
+};
 
 // BitMap allocator.  In order to reduce fragmentation and speed up allocation
 // of small blocks, we use a bitmap allocator for a fixed number of small block
@@ -170,11 +188,21 @@ struct PayloadBuffer {
     SetResizer(std::move(r));
   }
 
+  PayloadBuffer(uint32_t initial_size, BorrowedResizer *resizer,
+                bool bitmap_allocator = true)
+      : magic(kMovableBufferMagic | (bitmap_allocator ? kBitMapFlag : 0)),
+        message(0), hwm(0), full_size(initial_size), metadata(0) {
+    for (size_t i = 0; i < kNumBitmapRuns; i++) {
+      bitmaps[i] = 0;
+    }
+    InitFreeList();
+    SetBorrowedResizer(resizer);
+  }
+
   ~PayloadBuffer() {
-    if (IsMoveable()) {
+    if (IsMoveable() && !HasBorrowedResizer()) {
       // Destruct the resizer.
-      Resizer **addr = reinterpret_cast<Resizer **>(this + 1);
-      delete *addr;
+      delete GetResizer();
     }
   }
 
@@ -183,16 +211,48 @@ struct PayloadBuffer {
   void SetResizer(Resizer r) {
     // Place a pointer to the resizer function in the buffer just after the
     // header.
-    Resizer **addr = reinterpret_cast<Resizer **>(this + 1);
     Resizer *on_heap = new Resizer(std::move(r)); // Moved to heap memory.
-    *addr = on_heap;                              // Place address in memory.
+    *reinterpret_cast<uintptr_t *>(this + 1) =
+        reinterpret_cast<uintptr_t>(on_heap);
+  }
+
+  void SetBorrowedResizer(BorrowedResizer *resizer) {
+    constexpr uintptr_t kBorrowedTag = 1;
+    static_assert(alignof(BorrowedResizer) > kBorrowedTag);
+    *reinterpret_cast<uintptr_t *>(this + 1) =
+        reinterpret_cast<uintptr_t>(resizer) | kBorrowedTag;
   }
 
   Resizer *GetResizer() {
-    if (!IsMoveable()) {
+    if (!IsMoveable() || HasBorrowedResizer()) {
       return nullptr;
     }
-    return *reinterpret_cast<Resizer **>(this + 1);
+    return reinterpret_cast<Resizer *>(
+        *reinterpret_cast<uintptr_t *>(this + 1));
+  }
+
+  BorrowedResizer *GetBorrowedResizer() {
+    if (!HasBorrowedResizer()) {
+      return nullptr;
+    }
+    constexpr uintptr_t kBorrowedTag = 1;
+    return reinterpret_cast<BorrowedResizer *>(
+        *reinterpret_cast<uintptr_t *>(this + 1) & ~kBorrowedTag);
+  }
+
+  bool CanResize() const { return IsMoveable(); }
+  void Resize(PayloadBuffer **buffer, size_t old_size, size_t new_size) {
+    if (HasBorrowedResizer()) {
+      (*GetBorrowedResizer())(buffer, old_size, new_size);
+      return;
+    }
+    (*GetResizer())(buffer, old_size, new_size);
+  }
+  // Seal an externally resized payload before its borrowed callback expires.
+  void RemoveBorrowedResizer() {
+    if (HasBorrowedResizer()) {
+      magic = kFixedBufferMagic | (BitmapsEnabled() ? kBitMapFlag : 0);
+    }
   }
 
   size_t Size() const { return size_t(hwm); }
@@ -222,10 +282,11 @@ struct PayloadBuffer {
   }
 
   bool IsPresent(uint32_t bit, uint32_t offset) const {
-    uint32_t word = bit / 64;
-    bit %= 64;
-    const uint32_t *p = ToAddress<const uint32_t>(offset);
-    return (p[word] & (1 << bit)) != 0;
+    uint32_t word = bit / 32;
+    bit %= 32;
+    const uint32_t *p = ToAddress<const uint32_t>(
+        offset + word * static_cast<uint32_t>(sizeof(uint32_t)));
+    return p != nullptr && (*p & (1U << bit)) != 0;
   }
 
   static uint32_t DecodeSize(BufferOffset *addr) {
@@ -303,6 +364,13 @@ struct PayloadBuffer {
   size_t StringSize(const StringHeader *addr) const;
   const char *StringData(const StringHeader *addr) const;
 
+  // Size-aware string readers for buffers received from an untrusted source.
+  std::string GetString(BufferOffset header_offset, size_t buffer_size) const;
+  std::string_view GetStringView(BufferOffset header_offset,
+                                 size_t buffer_size) const;
+  size_t StringSize(BufferOffset header_offset, size_t buffer_size) const;
+  const char *StringData(BufferOffset header_offset, size_t buffer_size) const;
+
   template <typename T>
   T VectorGet(const VectorHeader *hdr, size_t index) const;
 
@@ -339,13 +407,27 @@ struct PayloadBuffer {
   bool IsMoveable() const {
     return (magic & kBitMapMask) == kMovableBufferMagic;
   }
+  bool HasBorrowedResizer() const {
+    constexpr uintptr_t kBorrowedTag = 1;
+    return IsMoveable() &&
+           (*reinterpret_cast<const uintptr_t *>(this + 1) & kBorrowedTag) != 0;
+  }
 
-  bool IsValidAddress(const void *addr, size_t size) const {
+  bool IsValidAddress(const void *addr, size_t size,
+                      size_t num_bytes = 1) const {
+    if (num_bytes == 0) {
+      return false;
+    }
     if (size == 0) {
       size = full_size;
     }
-    return addr >= reinterpret_cast<const char *>(this) &&
-           addr < reinterpret_cast<const char *>(this) + size;
+    const char *base = reinterpret_cast<const char *>(this);
+    const char *address = reinterpret_cast<const char *>(addr);
+    if (address < base) {
+      return false;
+    }
+    const size_t offset = static_cast<size_t>(address - base);
+    return offset < size && num_bytes <= size - offset;
   }
 
   // Given the address of a block, return the size of the block.  This is
@@ -367,9 +449,10 @@ struct PayloadBuffer {
     if (!IsValidMagic()) {
       return nullptr;
     }
-    // Validate that we don't go outside the buffer.
+    constexpr size_t kObjectSize =
+        sizeof(typename std::conditional<std::is_void<T>::value, char, T>::type);
     char *addr = reinterpret_cast<char *>(this) + offset;
-    if (!IsValidAddress(addr, size)) {
+    if (!IsValidAddress(addr, size, kObjectSize)) {
       return nullptr;
     }
 
@@ -383,7 +466,9 @@ struct PayloadBuffer {
     if (!IsValidMagic()) {
       return 0;
     }
-    if (!IsValidAddress(addr, size)) {
+    constexpr size_t kObjectSize =
+        sizeof(typename std::conditional<std::is_void<T>::value, char, T>::type);
+    if (!IsValidAddress(addr, size, kObjectSize)) {
       return 0;
     }
     return reinterpret_cast<const char *>(addr) -
@@ -398,9 +483,10 @@ struct PayloadBuffer {
     if (!IsValidMagic()) {
       return nullptr;
     }
-    // Validate that we don't go outside the buffer.
+    constexpr size_t kObjectSize =
+        sizeof(typename std::conditional<std::is_void<T>::value, char, T>::type);
     const char *addr = reinterpret_cast<const char *>(this) + offset;
-    if (!IsValidAddress(addr, size)) {
+    if (!IsValidAddress(addr, size, kObjectSize)) {
       return nullptr;
     }
 
@@ -416,7 +502,9 @@ struct PayloadBuffer {
     if (!IsValidMagic()) {
       return 0;
     }
-    if (!IsValidAddress(addr, size)) {
+    constexpr size_t kObjectSize =
+        sizeof(typename std::conditional<std::is_void<T>::value, char, T>::type);
+    if (!IsValidAddress(addr, size, kObjectSize)) {
       return 0;
     }
     return reinterpret_cast<const char *>(addr) -

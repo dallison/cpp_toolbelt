@@ -10,6 +10,21 @@ using BufferOffset = toolbelt::BufferOffset;
 using VectorHeader = toolbelt::VectorHeader;
 using Resizer = toolbelt::Resizer;
 
+struct BorrowedResizeContext {
+  char **storage;
+  bool *resized;
+};
+
+void ResizeBorrowedBuffer(void *opaque, PayloadBuffer **payload,
+                          size_t /*old_size*/, size_t new_size) {
+  auto *context = static_cast<BorrowedResizeContext *>(opaque);
+  void *memory = realloc(*context->storage, new_size);
+  ASSERT_NE(memory, nullptr);
+  *context->storage = static_cast<char *>(memory);
+  *payload = reinterpret_cast<PayloadBuffer *>(memory);
+  *context->resized = true;
+}
+
 TEST(BufferTest, Simple) {
   char *buffer = (char *)calloc(1, 4096);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
@@ -542,6 +557,30 @@ TEST(BufferTest, VectorPushWithResize) {
     ASSERT_EQ(i + 1, v);
   }
 
+  pb->~PayloadBuffer();
+  free(buffer);
+}
+
+TEST(BufferTest, BorrowedResizerGrowsWithoutTakingOwnership) {
+  char *buffer = static_cast<char *>(calloc(256, 1));
+  bool resized = false;
+  BorrowedResizeContext context{&buffer, &resized};
+  toolbelt::BorrowedResizer resizer{&context, ResizeBorrowedBuffer};
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(256, &resizer);
+  EXPECT_EQ(pb->magic, toolbelt::kMovableBufferMagic | toolbelt::kBitMapFlag);
+  PayloadBuffer::AllocateMainMessage(&pb, sizeof(VectorHeader));
+  const BufferOffset message_offset = pb->message;
+  VectorHeader *header = pb->ToAddress<VectorHeader>(message_offset);
+
+  PayloadBuffer::VectorResize<uint32_t>(&pb, header, 500);
+
+  EXPECT_TRUE(resized);
+  EXPECT_EQ(pb->GetBorrowedResizer(), &resizer);
+  header = pb->ToAddress<VectorHeader>(message_offset);
+  EXPECT_EQ(header->num_elements, 500u);
+  pb->RemoveBorrowedResizer();
+  EXPECT_FALSE(pb->CanResize());
+  EXPECT_FALSE(pb->HasBorrowedResizer());
   pb->~PayloadBuffer();
   free(buffer);
 }
