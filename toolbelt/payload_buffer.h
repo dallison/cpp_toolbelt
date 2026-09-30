@@ -543,10 +543,14 @@ inline void PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
     // the allocated block header (before the start of the memory)
     uint32_t *block = (*self)->ToAddress<uint32_t>(hdr->data);
     uint32_t current_size = DecodeSize(block);
-    if (current_size == total_size) {
-      // Need to double the size of the memory.
-      void *vecp = Realloc(self, block, 2 * hdr->num_elements * sizeof(T), true,
-                           enable_small_block);
+    const uint32_t needed = (hdr->num_elements + 1) * sizeof(T);
+    if (needed > current_size) {
+      // Grow to fit the next element; at least double prior capacity.
+      const uint32_t min_capacity =
+          2u * static_cast<uint32_t>(sizeof(T));
+      const uint32_t new_size = std::max<uint32_t>(
+          needed, std::max<uint32_t>(current_size * 2, min_capacity));
+      void *vecp = Realloc(self, block, new_size, true, enable_small_block);
       VectorHeader *new_hdr = (*self)->ToAddress<VectorHeader>(hdr_offset);
       new_hdr->data = (*self)->ToOffset(vecp);
       hdr = new_hdr;
