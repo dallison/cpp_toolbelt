@@ -120,6 +120,75 @@ const char *PayloadBuffer::StringData(const StringHeader *addr) const {
   return reinterpret_cast<const char *>(p + 1);
 }
 
+namespace {
+// Resolves the string whose StringHeader is at 'header_offset' and returns a
+// pointer to its data together with a length clamped to what actually fits in
+// the buffer.  Both the length word and the data are validated against the
+// trusted 'buffer_size' (or full_size when 'buffer_size' is 0), so a hostile
+// length can never cause an out-of-bounds read.  Returns {nullptr, 0} if the
+// string cannot be safely resolved.
+std::pair<const char *, size_t>
+BoundedString(const PayloadBuffer *pb, BufferOffset header_offset,
+              size_t buffer_size, uint32_t full_size) {
+  const BufferOffset *hdr =
+      pb->ToAddress<const BufferOffset>(header_offset, buffer_size);
+  if (hdr == nullptr) {
+    return {nullptr, 0};
+  }
+  // The length word precedes the string data; validate its location.
+  const uint32_t *len_word =
+      pb->ToAddress<const uint32_t>(*hdr, buffer_size);
+  if (len_word == nullptr) {
+    return {nullptr, 0};
+  }
+  const size_t limit = buffer_size != 0 ? buffer_size : size_t(full_size);
+  const char *data = reinterpret_cast<const char *>(len_word + 1);
+  const size_t data_off =
+      static_cast<size_t>(data - reinterpret_cast<const char *>(pb));
+  if (data_off > limit) {
+    return {nullptr, 0};
+  }
+  const size_t avail = limit - data_off;
+  size_t len = *len_word;
+  if (len > avail) {
+    len = avail;
+  }
+  return {data, len};
+}
+}  // namespace
+
+std::string PayloadBuffer::GetString(BufferOffset header_offset,
+                                     size_t buffer_size) const {
+  auto [data, len] = BoundedString(this, header_offset, buffer_size, full_size);
+  if (data == nullptr) {
+    return "";
+  }
+  return std::string(data, len);
+}
+
+std::string_view PayloadBuffer::GetStringView(BufferOffset header_offset,
+                                              size_t buffer_size) const {
+  auto [data, len] = BoundedString(this, header_offset, buffer_size, full_size);
+  if (data == nullptr) {
+    return {};
+  }
+  return std::string_view(data, len);
+}
+
+size_t PayloadBuffer::StringSize(BufferOffset header_offset,
+                                 size_t buffer_size) const {
+  auto [data, len] = BoundedString(this, header_offset, buffer_size, full_size);
+  (void)data;
+  return len;
+}
+
+const char *PayloadBuffer::StringData(BufferOffset header_offset,
+                                      size_t buffer_size) const {
+  auto [data, len] = BoundedString(this, header_offset, buffer_size, full_size);
+  (void)len;
+  return data;
+}
+
 absl::Span<char> PayloadBuffer::AllocateString(PayloadBuffer **self, size_t len,
                                                BufferOffset header_offset,
                                                bool clear) {

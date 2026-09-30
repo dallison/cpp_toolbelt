@@ -4,11 +4,14 @@
 #include "toolbelt/hexdump.h"
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 
 namespace toolbelt {
 
@@ -222,10 +225,17 @@ struct PayloadBuffer {
   }
 
   bool IsPresent(uint32_t bit, uint32_t offset) const {
-    uint32_t word = bit / 64;
-    bit %= 64;
-    const uint32_t *p = ToAddress<const uint32_t>(offset);
-    return (p[word] & (1 << bit)) != 0;
+    // Presence bits are packed 32 to a word; this must match SetPresenceBit /
+    // ClearPresenceBit which use 32-bit words.  Validate the specific word we
+    // read so a hostile field id cannot walk off the end of the buffer.
+    uint32_t word = bit / 32;
+    bit %= 32;
+    const uint32_t *p = ToAddress<const uint32_t>(
+        offset + word * static_cast<uint32_t>(sizeof(uint32_t)));
+    if (p == nullptr) {
+      return false;
+    }
+    return (*p & (1U << bit)) != 0;
   }
 
   static uint32_t DecodeSize(BufferOffset *addr) {
@@ -303,6 +313,19 @@ struct PayloadBuffer {
   size_t StringSize(const StringHeader *addr) const;
   const char *StringData(const StringHeader *addr) const;
 
+  // Size-aware string readers.  'buffer_size' is the number of bytes actually
+  // known to be available at 'this'.  A value of 0 means "trust full_size" and
+  // must only be used for buffers we own and built ourselves.  When reading
+  // data received from an untrusted source, pass the real received size so the
+  // stored string length cannot be used to read out of bounds: both the
+  // location of the length word and the returned length are validated against
+  // 'buffer_size'.
+  std::string GetString(BufferOffset header_offset, size_t buffer_size) const;
+  std::string_view GetStringView(BufferOffset header_offset,
+                                 size_t buffer_size) const;
+  size_t StringSize(BufferOffset header_offset, size_t buffer_size) const;
+  const char *StringData(BufferOffset header_offset, size_t buffer_size) const;
+
   template <typename T>
   T VectorGet(const VectorHeader *hdr, size_t index) const;
 
@@ -340,12 +363,30 @@ struct PayloadBuffer {
     return (magic & kBitMapMask) == kMovableBufferMagic;
   }
 
-  bool IsValidAddress(const void *addr, size_t size) const {
+  // Returns true if [addr, addr + nbytes) lies entirely within the first
+  // 'size' bytes of this buffer (or full_size when size == 0).
+  bool IsValidAddress(const void *addr, size_t size,
+                      size_t nbytes = 1) const {
+    if (nbytes == 0) {
+      return false;
+    }
     if (size == 0) {
       size = full_size;
     }
-    return addr >= reinterpret_cast<const char *>(this) &&
-           addr < reinterpret_cast<const char *>(this) + size;
+    const char *base = reinterpret_cast<const char *>(this);
+    const char *a = reinterpret_cast<const char *>(addr);
+    if (a < base) {
+      return false;
+    }
+    // Compute the offset without forming an out-of-range end pointer (which
+    // would be undefined behavior for a hostile 'size').
+    const size_t off = static_cast<size_t>(a - base);
+    if (off >= size) {
+      return false;
+    }
+    // Require the full object (nbytes) to fit; start-only checks let a
+    // uint32_t length word at size-1 through and then heap-overflow on read.
+    return nbytes <= size - off;
   }
 
   // Given the address of a block, return the size of the block.  This is
@@ -367,9 +408,12 @@ struct PayloadBuffer {
     if (!IsValidMagic()) {
       return nullptr;
     }
-    // Validate that we don't go outside the buffer.
+    // void* probes a single byte; typed pointers must fit sizeof(T).
+    // Use conditional_t so sizeof(void) is never evaluated.
+    constexpr size_t kN =
+        sizeof(typename std::conditional<std::is_void<T>::value, char, T>::type);
     char *addr = reinterpret_cast<char *>(this) + offset;
-    if (!IsValidAddress(addr, size)) {
+    if (!IsValidAddress(addr, size, kN)) {
       return nullptr;
     }
 
@@ -383,7 +427,9 @@ struct PayloadBuffer {
     if (!IsValidMagic()) {
       return 0;
     }
-    if (!IsValidAddress(addr, size)) {
+    constexpr size_t kN =
+        sizeof(typename std::conditional<std::is_void<T>::value, char, T>::type);
+    if (!IsValidAddress(addr, size, kN)) {
       return 0;
     }
     return reinterpret_cast<const char *>(addr) -
@@ -398,14 +444,14 @@ struct PayloadBuffer {
     if (!IsValidMagic()) {
       return nullptr;
     }
-    // Validate that we don't go outside the buffer.
+    constexpr size_t kN =
+        sizeof(typename std::conditional<std::is_void<T>::value, char, T>::type);
     const char *addr = reinterpret_cast<const char *>(this) + offset;
-    if (!IsValidAddress(addr, size)) {
+    if (!IsValidAddress(addr, size, kN)) {
       return nullptr;
     }
 
-    return reinterpret_cast<const T *>(reinterpret_cast<const char *>(this) +
-                                       offset);
+    return reinterpret_cast<const T *>(addr);
   }
 
   template <typename T = void>
@@ -416,7 +462,9 @@ struct PayloadBuffer {
     if (!IsValidMagic()) {
       return 0;
     }
-    if (!IsValidAddress(addr, size)) {
+    constexpr size_t kN =
+        sizeof(typename std::conditional<std::is_void<T>::value, char, T>::type);
+    if (!IsValidAddress(addr, size, kN)) {
       return 0;
     }
     return reinterpret_cast<const char *>(addr) -
