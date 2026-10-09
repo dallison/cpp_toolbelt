@@ -38,15 +38,22 @@ inline int BitmapRunIndexFromEncodedSize(uint32_t n) {
 
 void *PayloadBuffer::AllocateMainMessage(PayloadBuffer **self, size_t size) {
   void *msg = Allocate(self, size, 8, true);
+  if (msg == nullptr) {
+    return nullptr;
+  }
   (*self)->message = (*self)->ToOffset(msg);
   return msg;
 }
 
-void PayloadBuffer::AllocateMetadata(PayloadBuffer **self, void *md,
+bool PayloadBuffer::AllocateMetadata(PayloadBuffer **self, void *md,
                                      size_t size) {
   void *m = Allocate(self, size, 1, false);
+  if (m == nullptr) {
+    return false;
+  }
   memcpy(m, md, size);
   (*self)->metadata = (*self)->ToOffset(m);
+  return true;
 }
 
 char *PayloadBuffer::SetString(PayloadBuffer **self, const char *s, size_t len,
@@ -65,6 +72,9 @@ char *PayloadBuffer::SetString(PayloadBuffer **self, const char *s, size_t len,
     str = Realloc(self, old_str, len + 4, 4, false);
   } else {
     str = Allocate(self, len + 4, 4, false);
+  }
+  if (str == nullptr) {
+    return nullptr;
   }
   uint32_t *p = reinterpret_cast<uint32_t *>(str);
   p[0] = uint32_t(len);
@@ -207,6 +217,9 @@ absl::Span<char> PayloadBuffer::AllocateString(PayloadBuffer **self, size_t len,
   } else {
     str = Allocate(self, len + 4, 4, clear);
   }
+  if (str == nullptr) {
+    return {};
+  }
   uint32_t *p = reinterpret_cast<uint32_t *>(str);
   p[0] = uint32_t(len);
 
@@ -225,6 +238,9 @@ void PayloadBuffer::Dump(std::ostream &os) {
      << std::endl;
   os << "  bitmaps: " << ((magic & kBitMapFlag) ? "enabled" : "disabled")
      << std::endl;
+  if (AllocationFailed()) {
+    os << "  allocation failed" << std::endl;
+  }
   os << "  hwm: " << hwm << " " << ToAddress(hwm) << std::endl;
   os << "  full_size: " << full_size << std::endl;
   os << "  metadata: " << metadata << " " << ToAddress(metadata) << std::endl;
@@ -336,6 +352,7 @@ void *PayloadBuffer::Allocate(PayloadBuffer **buffer, uint32_t n,
       Resizer *resizer = (*buffer)->GetResizer();
       if (resizer == nullptr) {
         // Really out of memory.
+        (*buffer)->magic |= kAllocationFailedFlag;
         return nullptr;
       }
       size_t old_size = (*buffer)->full_size;
@@ -769,7 +786,11 @@ bool PayloadBuffer::PrimeBitmapAllocator(PayloadBuffer **self, size_t size) {
   }
   // Re-derive hdr since AllocateBitMapRun may have triggered a buffer resize.
   VectorHeader *hdr = (*self)->ToAddress<VectorHeader>((*self)->bitmaps[index]);
-  (*self)->VectorPush<BufferOffset>(self, hdr, (*self)->ToOffset(run), false);
+  if (!(*self)->VectorPush<BufferOffset>(self, hdr, (*self)->ToOffset(run),
+                                         false)) {
+    (*self)->Free(run);
+    return false;
+  }
   return true;
 }
 
@@ -782,9 +803,13 @@ BufferOffset PayloadBuffer::AllocateBitMapRunVector(PayloadBuffer **self) {
   }
   BufferOffset hdr_offset = (*self)->ToOffset(hdr);
 
-  // Preallocate space for 8 elements.
-  VectorReserve<BufferOffset>(self, reinterpret_cast<VectorHeader *>(hdr), 8,
-                              false);
+  // Preallocate space for 8 elements.  This is only an optimization so a
+  // failure leaves the allocation-failed flag as it was.
+  const uint32_t failed = (*self)->magic & kAllocationFailedFlag;
+  if (!VectorReserve<BufferOffset>(self, reinterpret_cast<VectorHeader *>(hdr),
+                                   8, false)) {
+    (*self)->magic = ((*self)->magic & ~kAllocationFailedFlag) | failed;
+  }
   return hdr_offset;
 }
 
@@ -860,7 +885,11 @@ void *BitMapRun::Allocate(PayloadBuffer **pb, int index, uint32_t, int size,
     // Re-derive hdr since AllocateBitMapRun may have triggered a buffer
     // resize, invalidating the previous pointer.
     hdr = (*pb)->ToAddress<VectorHeader>((*pb)->bitmaps[index]);
-    (*pb)->VectorPush<BufferOffset>(pb, hdr, (*pb)->ToOffset(run), false);
+    if (!(*pb)->VectorPush<BufferOffset>(pb, hdr, (*pb)->ToOffset(run),
+                                         false)) {
+      (*pb)->Free(run);
+      return nullptr;
+    }
   }
 }
 
@@ -879,8 +908,16 @@ void BitMapRun::Free(PayloadBuffer *pb, int index, int bitmap_index,
 
 void *PayloadBuffer::AllocateSmallBlock(PayloadBuffer **pb, uint32_t size,
                                         int index, bool clear) {
-  return BitMapRun::Allocate(pb, index, size, bitmp_run_infos[index].size,
-                             bitmp_run_infos[index].num, clear);
+  // A new run holds many blocks, so a fixed size buffer may have room for the
+  // block but not for the run.  The block then comes from the free list.
+  const uint32_t failed = (*pb)->magic & kAllocationFailedFlag;
+  void *addr = BitMapRun::Allocate(pb, index, size, bitmp_run_infos[index].size,
+                                   bitmp_run_infos[index].num, clear);
+  if (addr != nullptr) {
+    return addr;
+  }
+  (*pb)->magic = ((*pb)->magic & ~kAllocationFailedFlag) | failed;
+  return Allocate(pb, size, clear, false);
 }
 
 void PayloadBuffer::FreeSmallBlock(PayloadBuffer *pb, int index,
