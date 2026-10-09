@@ -833,11 +833,13 @@ struct PayloadBuffer {
     
     // Vector operations
     template <typename T>
-    static void VectorPush(PayloadBuffer **self, VectorHeader *hdr, T v,
+    static bool VectorPush(PayloadBuffer **self, VectorHeader *hdr, T v,
                           bool enable_small_block = true);
     template <typename T>
-    static void VectorReserve(PayloadBuffer **self, VectorHeader *hdr, size_t n,
+    static bool VectorReserve(PayloadBuffer **self, VectorHeader *hdr, size_t n,
                              bool enable_small_block = true);
+    template <typename T>
+    static bool VectorResize(PayloadBuffer **self, VectorHeader *hdr, size_t n);
     template <typename T>
     T VectorGet(const VectorHeader *hdr, size_t index) const;
     
@@ -852,8 +854,25 @@ struct PayloadBuffer {
     void Dump(std::ostream &os);
     bool IsValidMagic() const;
     bool IsMoveable() const;
+    bool AllocationFailed() const;
 };
 ```
+
+#### Fixed-size buffers that run out of space
+
+When a fixed-size buffer has no room for an allocation, the allocating
+functions report it and leave the buffer's existing contents unchanged:
+`Allocate`, `Realloc`, `SetString`, `AllocateMainMessage` and `NewMessage`
+return `nullptr`, `AllocateString` returns an empty span, and
+`AllocateMetadata`, `VectorPush`, `VectorReserve` and `VectorResize` return
+`false`.  The buffer also records the failure in its magic word
+(`kAllocationFailedFlag`), and `AllocationFailed()` reports it.  The writer can
+keep making smaller allocations, while a reader that checks the magic using
+`kBitMapMask` treats the incomplete buffer as invalid.
+
+With bitmaps enabled, a small allocation that has no room for a new bitmap run
+comes from the free list instead, so a small fixed-size buffer can use all of
+its space.  `VectorResize` sets the elements it adds to zero.
 
 #### Example
 

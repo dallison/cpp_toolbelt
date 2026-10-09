@@ -22,6 +22,12 @@ constexpr uint32_t kMovableBufferMagic = 0xc5f6f1c4;
 constexpr uint32_t kBitMapMask = 0xfffffffe;
 constexpr uint32_t kBitMapFlag = 1;
 
+// Set when an allocation failed because a fixed size buffer was full.  The
+// buffer's contents are then incomplete, and readers that check the magic
+// using kBitMapMask see it as invalid.
+constexpr uint32_t kAllocationFailedFlag = 2;
+constexpr uint32_t kMagicFlagsMask = kBitMapFlag | kAllocationFailedFlag;
+
 using BufferOffset = uint32_t;
 
 struct FreeBlockHeader {
@@ -183,6 +189,13 @@ struct PayloadBuffer {
 
   bool BitmapsEnabled() const { return (magic & kBitMapFlag) != 0; }
 
+  // True if an allocation has failed because the buffer was full.  Functions
+  // that allocate return nullptr, false or an empty span when that happens
+  // and leave the existing contents unchanged.
+  bool AllocationFailed() const {
+    return (magic & kAllocationFailedFlag) != 0;
+  }
+
   void SetResizer(Resizer r) {
     // Place a pointer to the resizer function in the buffer just after the
     // header.
@@ -201,11 +214,12 @@ struct PayloadBuffer {
   size_t Size() const { return size_t(hwm); }
 
   // Allocate space for the main message in the buffer and set the
-  // 'message' field to its offset.
+  // 'message' field to its offset.  Returns nullptr if there is no space.
   static void *AllocateMainMessage(PayloadBuffer **self, size_t size);
 
-  // Allocate space for the message metadata and copy it in.
-  static void AllocateMetadata(PayloadBuffer **self, void *md, size_t size);
+  // Allocate space for the message metadata and copy it in.  Returns false
+  // if there is no space.
+  static bool AllocateMetadata(PayloadBuffer **self, void *md, size_t size);
   // Prime the bitmap runs for the given size.  This pre-allocates the runs
   // for the size to remove the initial allocation time overhead for the
   // first allocation.  Returns true if successful.
@@ -253,7 +267,8 @@ struct PayloadBuffer {
 
   // Allocate space for the string.
   // 'header_offset' is the offset into the buffer of the StringHeader.
-  // The string is copied in.
+  // The string is copied in.  Returns nullptr, leaving any previous string
+  // in place, if there is no space.
 
   // C-string style (allows for no allocation of std::string).
   static char *SetString(PayloadBuffer **self, const char *s, size_t len,
@@ -267,6 +282,8 @@ struct PayloadBuffer {
 
   static void ClearString(PayloadBuffer **self, BufferOffset header_offset);
 
+  // Returns an empty span, leaving any previous string in place, if there is
+  // no space.
   static absl::Span<char> AllocateString(PayloadBuffer **self, size_t len,
                                          BufferOffset header_offset,
                                          bool clear = false);
@@ -279,16 +296,19 @@ struct PayloadBuffer {
   template <typename T> void Set(BufferOffset offset, T v);
   template <typename T> T &Get(BufferOffset offset);
 
+  // The vector functions return false, leaving the vector unchanged, if
+  // there is no space.
   template <typename T>
-  static void VectorPush(PayloadBuffer **self, VectorHeader *hdr, T v,
+  static bool VectorPush(PayloadBuffer **self, VectorHeader *hdr, T v,
                          bool enable_small_block = true);
 
   template <typename T>
-  static void VectorReserve(PayloadBuffer **self, VectorHeader *hdr, size_t n,
+  static bool VectorReserve(PayloadBuffer **self, VectorHeader *hdr, size_t n,
                             bool enable_small_block = true);
 
+  // Elements added by growing the vector are zero.
   template <typename T>
-  static void VectorResize(PayloadBuffer **self, VectorHeader *hdr, size_t n);
+  static bool VectorResize(PayloadBuffer **self, VectorHeader *hdr, size_t n);
 
   template <typename T>
   static void VectorClear(PayloadBuffer **self, VectorHeader *hdr);
@@ -356,11 +376,11 @@ struct PayloadBuffer {
                                           uint32_t n, bool clear = true);
 
   bool IsValidMagic() const {
-    uint32_t m = magic & kBitMapMask;
+    uint32_t m = magic & ~kMagicFlagsMask;
     return m == kFixedBufferMagic || m == kMovableBufferMagic;
   }
   bool IsMoveable() const {
-    return (magic & kBitMapMask) == kMovableBufferMagic;
+    return (magic & ~kMagicFlagsMask) == kMovableBufferMagic;
   }
 
   // Returns true if [addr, addr + nbytes) lies entirely within the first
@@ -522,7 +542,7 @@ template <typename T> inline T &PayloadBuffer::Get(BufferOffset offset) {
 }
 
 template <typename T>
-inline void PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
+inline bool PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
                                       T v, bool enable_small_block) {
   // hdr points to a VectorHeader:
   // uint32_t num_elements;     - number of elements in the vector
@@ -531,10 +551,12 @@ inline void PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
   // by the block size (in bytes).
   BufferOffset hdr_offset = (*self)->ToOffset(hdr);
 
-  uint32_t total_size = hdr->num_elements * sizeof(T);
   if (hdr->data == 0) {
     // The vector is empty, allocate it with a default size of 2.
     void *vecp = Allocate(self, 2 * sizeof(T), true, enable_small_block);
+    if (vecp == nullptr) {
+      return false;
+    }
     VectorHeader *new_hdr = (*self)->ToAddress<VectorHeader>(hdr_offset);
     new_hdr->data = (*self)->ToOffset(vecp);
     hdr = new_hdr;
@@ -551,6 +573,9 @@ inline void PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
       const uint32_t new_size = std::max<uint32_t>(
           needed, std::max<uint32_t>(current_size * 2, min_capacity));
       void *vecp = Realloc(self, block, new_size, true, enable_small_block);
+      if (vecp == nullptr) {
+        return false;
+      }
       VectorHeader *new_hdr = (*self)->ToAddress<VectorHeader>(hdr_offset);
       new_hdr->data = (*self)->ToOffset(vecp);
       hdr = new_hdr;
@@ -562,15 +587,22 @@ inline void PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
   *valuep = v;
   // Increment the number of elements.
   hdr->num_elements++;
+  return true;
 }
 
 template <typename T>
-inline void PayloadBuffer::VectorReserve(PayloadBuffer **self,
+inline bool PayloadBuffer::VectorReserve(PayloadBuffer **self,
                                          VectorHeader *hdr, size_t n,
                                          bool enable_small_block) {
+  if (n == 0) {
+    return true;
+  }
   BufferOffset hdr_offset = (*self)->ToOffset(hdr);
   if (hdr->data == 0) {
     void *vecp = Allocate(self, n * sizeof(T), false, enable_small_block);
+    if (vecp == nullptr) {
+      return false;
+    }
     VectorHeader* new_hdr = (*self)->ToAddress<VectorHeader>(hdr_offset);
     new_hdr->data = (*self)->ToOffset(vecp);
     hdr = new_hdr;
@@ -583,22 +615,31 @@ inline void PayloadBuffer::VectorReserve(PayloadBuffer **self,
       // Need to expand the memory to the size given.
       void *vecp =
           Realloc(self, block, n * sizeof(T), false, enable_small_block);
+      if (vecp == nullptr) {
+        return false;
+      }
       VectorHeader* new_hdr = (*self)->ToAddress<VectorHeader>(hdr_offset);
       new_hdr->data = (*self)->ToOffset(vecp);
       hdr = new_hdr;
     }
   }
+  return true;
 }
 
 template <typename T>
-inline void PayloadBuffer::VectorResize(PayloadBuffer **self, VectorHeader *hdr,
+inline bool PayloadBuffer::VectorResize(PayloadBuffer **self, VectorHeader *hdr,
                                         size_t n) {
   BufferOffset hdr_offset = (*self)->ToOffset(hdr);
   if (hdr->data == 0) {
-    void *vecp = Allocate(self, n * sizeof(T));
-    VectorHeader* new_hdr = (*self)->ToAddress<VectorHeader>(hdr_offset);
-    new_hdr->data = (*self)->ToOffset(vecp);
-    hdr = new_hdr;
+    if (n > 0) {
+      void *vecp = Allocate(self, n * sizeof(T));
+      if (vecp == nullptr) {
+        return false;
+      }
+      VectorHeader *new_hdr = (*self)->ToAddress<VectorHeader>(hdr_offset);
+      new_hdr->data = (*self)->ToOffset(vecp);
+      hdr = new_hdr;
+    }
   } else {
     // Vector has some values in it.  Retrieve the total size from
     // the allocated block header (before the start of the memory)
@@ -606,13 +647,23 @@ inline void PayloadBuffer::VectorResize(PayloadBuffer **self, VectorHeader *hdr,
     uint32_t current_size = DecodeSize(block);
     if (current_size < n * sizeof(T)) {
       // Need to expand the memory to the size given.
-      void *vecp = Realloc(self, block, n * sizeof(T), 8);
+      void *vecp = Realloc(self, block, n * sizeof(T), true);
+      if (vecp == nullptr) {
+        return false;
+      }
       VectorHeader* new_hdr = (*self)->ToAddress<VectorHeader>(hdr_offset);
       new_hdr->data = (*self)->ToOffset(vecp);
       hdr = new_hdr;
     }
   }
+  if (n > hdr->num_elements) {
+    // Reserved capacity and elements removed by shrinking are not cleared.
+    T *data = (*self)->ToAddress<T>(hdr->data);
+    memset(static_cast<void *>(data + hdr->num_elements), 0,
+           (n - hdr->num_elements) * sizeof(T));
+  }
   hdr->num_elements = n;
+  return true;
 }
 
 template <typename T>
@@ -642,6 +693,9 @@ inline MessageType *PayloadBuffer::NewMessage(PayloadBuffer **self,
                                               uint32_t size,
                                               BufferOffset offset) {
   void *msg = Allocate(self, size);
+  if (msg == nullptr) {
+    return nullptr;
+  }
   BufferOffset *p = (*self)->ToAddress<BufferOffset>(offset);
   *p = (*self)->ToOffset(msg);
   return reinterpret_cast<MessageType *>(msg);
