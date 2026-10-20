@@ -8,7 +8,6 @@
 #include "absl/status/status_matchers.h"
 #include "toolbelt/hexdump.h"
 #include "co/coroutine.h"
-#include "co/coroutine_scheduler.h"
 
 #define VAR(a) a##__COUNTER__
 #define EVAL_AND_ASSERT_OK(expr) EVAL_AND_ASSERT_OK2(VAR(r_), expr)
@@ -95,7 +94,7 @@ TEST(SocketsTest, UnixSocket) {
     std::cerr << status << std::endl;
     ASSERT_TRUE(status.ok());
 
-    co::ScheduledCoroutine incoming(scheduler, [&listener](co::Coroutine* c) {
+    co::Coroutine incoming(scheduler, [&listener](co::Coroutine* c) {
         absl::StatusOr<toolbelt::UnixSocket> s = listener.Accept(c);
         ASSERT_TRUE(s.ok());
         auto socket = s.value();
@@ -114,7 +113,7 @@ TEST(SocketsTest, UnixSocket) {
         ASSERT_EQ(std::size_t{3}, fds.size());
     });
 
-    co::ScheduledCoroutine outgoing(scheduler, [&socket_name](co::Coroutine* c) {
+    co::Coroutine outgoing(scheduler, [&socket_name](co::Coroutine* c) {
         toolbelt::UnixSocket socket;
         absl::Status s = socket.Connect(socket_name);
         ASSERT_TRUE(s.ok());
@@ -153,7 +152,7 @@ TEST(SocketsTest, UnixSocketZeroFds) {
     absl::Status status = listener.Bind(socket_name, true);
     ASSERT_TRUE(status.ok());
 
-    co::ScheduledCoroutine incoming(scheduler, [&listener](co::Coroutine* c) {
+    co::Coroutine incoming(scheduler, [&listener](co::Coroutine* c) {
         absl::StatusOr<toolbelt::UnixSocket> s = listener.Accept(c);
         ASSERT_TRUE(s.ok());
         auto socket = s.value();
@@ -164,7 +163,7 @@ TEST(SocketsTest, UnixSocketZeroFds) {
         ASSERT_TRUE(fds.empty());
     });
 
-    co::ScheduledCoroutine outgoing(scheduler, [&socket_name](co::Coroutine* c) {
+    co::Coroutine outgoing(scheduler, [&socket_name](co::Coroutine* c) {
         toolbelt::UnixSocket socket;
         absl::Status s = socket.Connect(socket_name);
         ASSERT_TRUE(s.ok());
@@ -192,7 +191,7 @@ TEST(SocketsTest, UnixSocketShortFdCountRead) {
     absl::Status status = listener.Bind(socket_name, true);
     ASSERT_TRUE(status.ok());
 
-    co::ScheduledCoroutine incoming(scheduler, [&listener](co::Coroutine* c) {
+    co::Coroutine incoming(scheduler, [&listener](co::Coroutine* c) {
         absl::StatusOr<toolbelt::UnixSocket> s = listener.Accept(c);
         ASSERT_TRUE(s.ok());
         auto socket = s.value();
@@ -203,7 +202,7 @@ TEST(SocketsTest, UnixSocketShortFdCountRead) {
         ASSERT_EQ(std::size_t{1}, fds.size());
     });
 
-    co::ScheduledCoroutine outgoing(scheduler, [&socket_name](co::Coroutine* c) {
+    co::Coroutine outgoing(scheduler, [&socket_name](co::Coroutine* c) {
         toolbelt::UnixSocket socket;
         absl::Status s = socket.Connect(socket_name);
         ASSERT_TRUE(s.ok());
@@ -258,7 +257,7 @@ TEST(SocketsTest, TCPSocket) {
     absl::Status status = listener.Bind(addr, true);
     ASSERT_TRUE(status.ok());
 
-    co::ScheduledCoroutine incoming(scheduler, [&listener](co::Coroutine* c) {
+    co::Coroutine incoming(scheduler, [&listener](co::Coroutine* c) {
         absl::StatusOr<toolbelt::TCPSocket> s = listener.Accept(c);
         ASSERT_TRUE(s.ok());
         auto socket = s.value();
@@ -270,7 +269,7 @@ TEST(SocketsTest, TCPSocket) {
         ASSERT_EQ("hello world", std::string(buf.data(), 11));
     });
 
-    co::ScheduledCoroutine outgoing(scheduler, [&addr](co::Coroutine* c) {
+    co::Coroutine outgoing(scheduler, [&addr](co::Coroutine* c) {
         toolbelt::TCPSocket socket;
         absl::Status s = socket.Connect(addr);
         ASSERT_TRUE(s.ok());
@@ -297,7 +296,7 @@ TEST(SocketsTest, BigTCPSocketNonblocking) {
     ASSERT_TRUE(status.ok());
 
     constexpr size_t kBufferSize = 10 * 1024 * 1024;
-    co::ScheduledCoroutine incoming(scheduler, [&listener, kBufferSize](co::Coroutine* c) {
+    co::Coroutine incoming(scheduler, [&listener, kBufferSize](co::Coroutine* c) {
         absl::StatusOr<toolbelt::TCPSocket> s = listener.Accept(c);
         ASSERT_TRUE(s.ok());
         auto socket = s.value();
@@ -316,7 +315,7 @@ TEST(SocketsTest, BigTCPSocketNonblocking) {
         }
     });
 
-    co::ScheduledCoroutine outgoing(scheduler, [&addr](co::Coroutine* c) {
+    co::Coroutine outgoing(scheduler, [&addr](co::Coroutine* c) {
         toolbelt::TCPSocket socket;
         absl::Status s = socket.Connect(addr);
         ASSERT_TRUE(s.ok());
@@ -345,7 +344,7 @@ TEST(SocketsTest, BigTCPSocketBlocking) {
     ASSERT_TRUE(status.ok());
 
     constexpr size_t kBufferSize = 10 * 1024 * 1024;
-    co::ScheduledCoroutine incoming(
+    co::Coroutine incoming(
             sendScheduler, [&listener, kBufferSize](co::Coroutine* c) {
                 absl::StatusOr<toolbelt::TCPSocket> s = listener.Accept(c);
                 ASSERT_TRUE(s.ok());
@@ -364,7 +363,7 @@ TEST(SocketsTest, BigTCPSocketBlocking) {
                 }
             });
 
-    co::ScheduledCoroutine outgoing(ReceiveScheduler, [&addr](co::Coroutine* c) {
+    co::Coroutine outgoing(ReceiveScheduler, [&addr](co::Coroutine* c) {
         toolbelt::TCPSocket socket;
         absl::Status s = socket.Connect(addr);
         ASSERT_TRUE(s.ok());
@@ -395,7 +394,7 @@ TEST(SocketsTest, TCPSocketInterrupt) {
     absl::Status status = listener.Bind(addr, true);
     ASSERT_TRUE(status.ok());
 
-    co::ScheduledCoroutine incoming(
+    co::Coroutine incoming(
             scheduler,
             [&listener](co::Coroutine* c) {
                 absl::StatusOr<toolbelt::TCPSocket> s = listener.Accept(c);
@@ -403,7 +402,7 @@ TEST(SocketsTest, TCPSocketInterrupt) {
             },
             co::CoroutineOptions{.name = "foo", .interrupt_fd = scheduler.GetInterruptFd()});
 
-    co::ScheduledCoroutine interrupt(scheduler, [](co::Coroutine* c) {
+    co::Coroutine interrupt(scheduler, [](co::Coroutine* c) {
         c->Yield();
         c->Scheduler().TriggerInterrupt();
     });
@@ -422,7 +421,7 @@ TEST(SocketsTest, TCPSocket2) {
     absl::Status status = listener.Bind(addr, true);
     ASSERT_TRUE(status.ok());
 
-    co::ScheduledCoroutine incoming(scheduler, [&listener](co::Coroutine* c) {
+    co::Coroutine incoming(scheduler, [&listener](co::Coroutine* c) {
         absl::StatusOr<toolbelt::TCPSocket> s = listener.Accept(c);
         ASSERT_TRUE(s.ok());
         auto socket = s.value();
@@ -436,7 +435,7 @@ TEST(SocketsTest, TCPSocket2) {
         std::vector<toolbelt::FileDescriptor> fds;
     });
 
-    co::ScheduledCoroutine outgoing(scheduler, [&addr](co::Coroutine* c) {
+    co::Coroutine outgoing(scheduler, [&addr](co::Coroutine* c) {
         toolbelt::TCPSocket socket;
         absl::Status s = socket.Connect(addr);
         ASSERT_TRUE(s.ok());
@@ -463,7 +462,7 @@ TEST(SocketsTest, TCPSocket3) {
     ASSERT_TRUE(status.ok());
     toolbelt::InetAddress baddr = listener.BoundAddress();
 
-    co::ScheduledCoroutine incoming(scheduler, [&listener](co::Coroutine* c) {
+    co::Coroutine incoming(scheduler, [&listener](co::Coroutine* c) {
         absl::StatusOr<toolbelt::TCPSocket> s = listener.Accept(c);
         ASSERT_TRUE(s.ok());
         auto socket = s.value();
@@ -477,7 +476,7 @@ TEST(SocketsTest, TCPSocket3) {
         std::vector<toolbelt::FileDescriptor> fds;
     });
 
-    co::ScheduledCoroutine outgoing(scheduler, [&baddr](co::Coroutine* c) {
+    co::Coroutine outgoing(scheduler, [&baddr](co::Coroutine* c) {
         toolbelt::TCPSocket socket;
         absl::Status s = socket.Connect(baddr);
         ASSERT_TRUE(s.ok());
@@ -520,7 +519,7 @@ TEST(SocketsTest, UDPSocket) {
 
     co::CoroutineScheduler scheduler;
 
-    co::ScheduledCoroutine incoming(scheduler, [&Receiver](co::Coroutine* c) {
+    co::Coroutine incoming(scheduler, [&Receiver](co::Coroutine* c) {
         toolbelt::UDPSocket socket;
         absl::Status s1 = socket.Bind(Receiver);
         ASSERT_TRUE(s1.ok());
@@ -533,7 +532,7 @@ TEST(SocketsTest, UDPSocket) {
         ASSERT_EQ("hello world", std::string(buffer, n - 1));
     });
 
-    co::ScheduledCoroutine outgoing(scheduler, [&sender, &Receiver](co::Coroutine* c) {
+    co::Coroutine outgoing(scheduler, [&sender, &Receiver](co::Coroutine* c) {
         toolbelt::UDPSocket socket;
         absl::Status s1 = socket.Bind(sender);
         ASSERT_TRUE(s1.ok());
@@ -556,7 +555,7 @@ TEST(SocketsTest, UDPSocket2) {
 
     co::CoroutineScheduler scheduler;
 
-    co::ScheduledCoroutine incoming(scheduler, [&receiver, &sender](co::Coroutine* c) {
+    co::Coroutine incoming(scheduler, [&receiver, &sender](co::Coroutine* c) {
         toolbelt::UDPSocket socket;
         absl::Status s1 = socket.Bind(receiver);
         ASSERT_TRUE(s1.ok());
@@ -571,7 +570,7 @@ TEST(SocketsTest, UDPSocket2) {
         ASSERT_EQ(sender, from);
     });
 
-    co::ScheduledCoroutine outgoing(scheduler, [&sender, &receiver](co::Coroutine* c) {
+    co::Coroutine outgoing(scheduler, [&sender, &receiver](co::Coroutine* c) {
         toolbelt::UDPSocket socket;
         absl::Status s1 = socket.Bind(sender);
         ASSERT_TRUE(s1.ok());

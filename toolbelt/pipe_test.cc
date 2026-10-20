@@ -4,7 +4,6 @@
 
 #include "absl/status/status_matchers.h"
 #include "co/coroutine.h"
-#include "co/coroutine_scheduler.h"
 #include "pipe.h"
 #include <gtest/gtest.h>
 #include <string_view>
@@ -66,14 +65,14 @@ TEST(PipeTest, CoroutinePipeReadAndWrite) {
   ASSERT_OK(p);
   auto pipe = std::move(*p);
 
-  co::ScheduledCoroutine reader(scheduler, [&pipe](co::Coroutine *c) {
+  co::Coroutine reader(scheduler, [&pipe](co::Coroutine *c) {
     char buffer[20];
     auto r = pipe.Read(buffer, 5, c);
     ASSERT_OK(r);
     ASSERT_EQ(*r, 5);
     ASSERT_EQ(std::string_view(buffer, *r), "Hello");
   });
-  co::ScheduledCoroutine writer(scheduler, [&pipe](co::Coroutine *c) {
+  co::Coroutine writer(scheduler, [&pipe](co::Coroutine *c) {
     const char *msg = "Hello";
     auto s = pipe.Write(msg, 5, c);
     ASSERT_OK(s);
@@ -89,14 +88,14 @@ TEST(PipeTest, CoroutinePipeReadAndWriteNonblocking) {
   auto pipe = std::move(*p);
   ASSERT_OK(pipe.SetNonBlocking(true, true));
 
-  co::ScheduledCoroutine reader(scheduler, [&pipe](co::Coroutine *c) {
+  co::Coroutine reader(scheduler, [&pipe](co::Coroutine *c) {
     char buffer[20];
     auto r = pipe.Read(buffer, 5, c);
     ASSERT_OK(r);
     ASSERT_EQ(*r, 5);
     ASSERT_EQ(std::string_view(buffer, *r), "Hello");
   });
-  co::ScheduledCoroutine writer(scheduler, [&pipe](co::Coroutine *c) {
+  co::Coroutine writer(scheduler, [&pipe](co::Coroutine *c) {
     const char *msg = "Hello";
     auto s = pipe.Write(msg, 5, c);
     ASSERT_OK(s);
@@ -111,13 +110,13 @@ TEST(PipeTest, CoroutinePtrPipeReadAndWrite) {
   ASSERT_OK(p);
   auto pipe = std::move(*p);
 
-  co::ScheduledCoroutine reader(scheduler, [&pipe](co::Coroutine *c) {
+  co::Coroutine reader(scheduler, [&pipe](co::Coroutine *c) {
     auto t = pipe.Read(c);
     ASSERT_OK(t);
     ASSERT_EQ(1, (*t)->a);
     ASSERT_EQ(2, (*t)->b);
   });
-  co::ScheduledCoroutine writer(scheduler, [&pipe](co::Coroutine *c) {
+  co::Coroutine writer(scheduler, [&pipe](co::Coroutine *c) {
     auto t = std::make_shared<TestStruct>(1, 2);
     ASSERT_OK(pipe.Write(t, c));
   });
@@ -131,13 +130,13 @@ TEST(PipeTest, CoroutinePtrPipeReadAndWriteNonblocking) {
   auto pipe = std::move(*p);
   ASSERT_OK(pipe.SetNonBlocking(true, true));
 
-  co::ScheduledCoroutine reader(scheduler, [&pipe](co::Coroutine *c) {
+  co::Coroutine reader(scheduler, [&pipe](co::Coroutine *c) {
     auto t = pipe.Read(c);
     ASSERT_OK(t);
     ASSERT_EQ(1, (*t)->a);
     ASSERT_EQ(2, (*t)->b);
   });
-  co::ScheduledCoroutine writer(scheduler, [&pipe](co::Coroutine *c) {
+  co::Coroutine writer(scheduler, [&pipe](co::Coroutine *c) {
     auto t = std::make_shared<TestStruct>(1, 2);
     ASSERT_OK(pipe.Write(t, c));
   });
@@ -154,7 +153,7 @@ TEST(PipeTest, CoroutineFullPipeReadAndWrite) {
   constexpr int kMessageSize = 4;
   constexpr int kNumMessages = kPipeSize / kMessageSize;
 
-  co::ScheduledCoroutine reader(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
+  co::Coroutine reader(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
     for (int i = 0; i < kNumMessages; i++) {
       char buffer[20];
       auto r = pipe.Read(buffer, kMessageSize, c);
@@ -163,7 +162,7 @@ TEST(PipeTest, CoroutineFullPipeReadAndWrite) {
       ASSERT_EQ(std::string_view(buffer, *r), "1234");
     }
   });
-  co::ScheduledCoroutine writer(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
+  co::Coroutine writer(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
     for (int i = 0; i < kNumMessages; i++) {
       const char *msg = "1234";
       auto s = pipe.Write(msg, kMessageSize, c);
@@ -189,7 +188,7 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWrite) {
   constexpr int kMessageSize = 4;
   constexpr int kNumMessages = 10 * kPipeSize / kMessageSize;
 
-  co::ScheduledCoroutine reader(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
+  co::Coroutine reader(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
     for (int i = 0; i < kNumMessages; i++) {
       char buffer[20];
       auto r = pipe.Read(buffer, kMessageSize, c);
@@ -198,7 +197,7 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWrite) {
       ASSERT_EQ(std::string_view(buffer, *r), "1234");
     }
   });
-  co::ScheduledCoroutine writer(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
+  co::Coroutine writer(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
     for (int i = 0; i < kNumMessages; i++) {
       const char *msg = "1234";
       auto s = pipe.Write(msg, kMessageSize, c);
@@ -221,7 +220,7 @@ TEST(PipeTest, CoroutineFullPipeReadAndWriteNonblocking) {
   constexpr int kNumMessages = kPipeSize / kMessageSize;
 
   ASSERT_OK(pipe.SetNonBlocking(true, true));
-  co::ScheduledCoroutine reader(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
+  co::Coroutine reader(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
     for (int i = 0; i < kNumMessages; i++) {
       char buffer[20];
       auto r = pipe.Read(buffer, kMessageSize, c);
@@ -230,7 +229,7 @@ TEST(PipeTest, CoroutineFullPipeReadAndWriteNonblocking) {
       ASSERT_EQ(std::string_view(buffer, *r), "1234");
     }
   });
-  co::ScheduledCoroutine writer(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
+  co::Coroutine writer(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
     for (int i = 0; i < kNumMessages; i++) {
       const char *msg = "1234";
       auto s = pipe.Write(msg, kMessageSize, c);
@@ -257,7 +256,7 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWriteNonblocking) {
   constexpr int kNumMessages = 10 * kPipeSize / kMessageSize;
 
   ASSERT_OK(pipe.SetNonBlocking(true, true));
-  co::ScheduledCoroutine reader(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
+  co::Coroutine reader(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
     for (int i = 0; i < kNumMessages; i++) {
       char buffer[20];
       auto r = pipe.Read(buffer, kMessageSize, c);
@@ -266,7 +265,7 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWriteNonblocking) {
       ASSERT_EQ(std::string_view(buffer, *r), "1234");
     }
   });
-  co::ScheduledCoroutine writer(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
+  co::Coroutine writer(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
     for (int i = 0; i < kNumMessages; i++) {
       const char *msg = "1234";
       auto s = pipe.Write(msg, kMessageSize, c);
@@ -284,7 +283,7 @@ TEST(PipeTest, CoroutinePipeReadAndMultiWrite) {
   ASSERT_OK(p);
   auto pipe = std::move(*p);
 
-  co::ScheduledCoroutine reader(scheduler, [&pipe](co::Coroutine *c) {
+  co::Coroutine reader(scheduler, [&pipe](co::Coroutine *c) {
     char buffer[20];
     auto r = pipe.Read(buffer, 5, c);
     ASSERT_OK(r);
@@ -297,14 +296,14 @@ TEST(PipeTest, CoroutinePipeReadAndMultiWrite) {
     ASSERT_EQ(std::string_view(buffer, *r), "54321");
   });
 
-  co::ScheduledCoroutine writer1(scheduler, [&pipe](co::Coroutine *c) {
+  co::Coroutine writer1(scheduler, [&pipe](co::Coroutine *c) {
     const char *msg = "12345";
     auto s = pipe.Write(msg, 5, c);
     ASSERT_OK(s);
     ASSERT_EQ(*s, 5);
   });
 
-  co::ScheduledCoroutine writer2(scheduler, [&pipe](co::Coroutine *c) {
+  co::Coroutine writer2(scheduler, [&pipe](co::Coroutine *c) {
     const char *msg = "54321";
     auto s = pipe.Write(msg, 5, c);
     ASSERT_OK(s);
@@ -327,7 +326,7 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWriteMultiwriter) {
   constexpr int kMessageSize = 4;
   constexpr int kNumMessages = 10 * kPipeSize / kMessageSize;
 
-  co::ScheduledCoroutine reader(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
+  co::Coroutine reader(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
     for (int i = 0; i < kNumMessages * 2; i++) {
       char buffer[20];
       auto r = pipe.Read(buffer, kMessageSize, c);
@@ -340,7 +339,7 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWriteMultiwriter) {
     }
   });
 
-  co::ScheduledCoroutine writer1(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
+  co::Coroutine writer1(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
     for (int i = 0; i < kNumMessages; i++) {
       const char *msg = "1234";
       auto s = pipe.Write(msg, kMessageSize, c);
@@ -349,7 +348,7 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWriteMultiwriter) {
     }
   });
 
-  co::ScheduledCoroutine writer2(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
+  co::Coroutine writer2(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
     for (int i = 0; i < kNumMessages; i++) {
       const char *msg = "4321";
       auto s = pipe.Write(msg, kMessageSize, c);
@@ -376,7 +375,7 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWriteMultiwriterNonblocking) {
   constexpr int kNumMessages = 10 * kPipeSize / kMessageSize;
 
   ASSERT_OK(pipe.SetNonBlocking(true, true));
-  co::ScheduledCoroutine reader(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
+  co::Coroutine reader(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
     for (int i = 0; i < kNumMessages * 2; i++) {
       char buffer[20];
       auto r = pipe.Read(buffer, kMessageSize, c);
@@ -389,7 +388,7 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWriteMultiwriterNonblocking) {
     }
   });
 
-  co::ScheduledCoroutine writer1(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
+  co::Coroutine writer1(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
     for (int i = 0; i < kNumMessages; i++) {
       const char *msg = "1234";
       auto s = pipe.Write(msg, kMessageSize, c);
@@ -398,7 +397,7 @@ TEST(PipeTest, CoroutineOverFullPipeReadAndWriteMultiwriterNonblocking) {
     }
   });
 
-  co::ScheduledCoroutine writer2(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
+  co::Coroutine writer2(scheduler, [&pipe, kMessageSize](co::Coroutine *c) {
     for (int i = 0; i < kNumMessages; i++) {
       const char *msg = "4321";
       auto s = pipe.Write(msg, kMessageSize, c);
