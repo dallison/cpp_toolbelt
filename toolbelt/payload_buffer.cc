@@ -59,6 +59,21 @@ char *PayloadBuffer::SetString(PayloadBuffer **self, const char *s, size_t len,
   BufferOffset str_ptr = *hdr;
   void *old_str = (*self)->ToAddress(str_ptr);
 
+  // 's' can be in this buffer, which allocating can move, so it is found
+  // again there by its offset.
+  const BufferOffset source = (*self)->ContainedOffset(s);
+  if (old_str != nullptr) {
+    const char *old_begin = static_cast<const char *>(old_str);
+    const char *old_end =
+        old_begin + sizeof(uint32_t) + *static_cast<const uint32_t *>(old_str);
+    if (std::less_equal<const char *>()(old_begin, s) &&
+        std::less<const char *>()(s, old_end)) {
+      // Resizing the old string can overwrite 's', which is in it.
+      const std::string copy(s, len);
+      return SetString(self, copy.data(), len, header_offset);
+    }
+  }
+
   // If this contains a valid (non-zero) offset, reallocate the
   // data it points to, otherwise allocate new data.
   if (old_str != nullptr) {
@@ -68,7 +83,8 @@ char *PayloadBuffer::SetString(PayloadBuffer **self, const char *s, size_t len,
   }
   uint32_t *p = reinterpret_cast<uint32_t *>(str);
   p[0] = uint32_t(len);
-  memcpy(p + 1, s, len);
+  memcpy(p + 1, source == 0 ? s : reinterpret_cast<char *>(*self) + source,
+         len);
 
   // The buffer may have moved.  Reassign the address of the string
   // back into the header.
@@ -599,14 +615,8 @@ uint64_t *PayloadBuffer::MergeWithFreeBlockBelow(
   } else {
     next_ptr = &prev->next;
   }
-  // Move FreeBlockHeader to end of allocated block.  This is inside
-  // the combined free block and block being reallocated.
-  FreeBlockHeader *next = ToAddress<FreeBlockHeader>(free_block->next);
-  FreeBlockHeader *newb = reinterpret_cast<FreeBlockHeader *>(
-      free_addr + new_length + sizeof(uint64_t));
-  newb->length = free_block->length + orig_length - new_length;
-  newb->next = ToOffset(next);
-  *next_ptr = ToOffset(newb);
+  const BufferOffset next = free_block->next;
+  const uint32_t remaining = free_block->length + orig_length - new_length;
 
   uint64_t *len_ptr = reinterpret_cast<uint64_t *>(free_block);
   *len_ptr = new_length;
@@ -614,6 +624,18 @@ uint64_t *PayloadBuffer::MergeWithFreeBlockBelow(
   if (clear) {
     memset(reinterpret_cast<char *>(len_ptr) + sizeof(uint64_t) + orig_length, 0,
            new_length - orig_length);
+  }
+  // What is left of the combined blocks follows the moved block, and can
+  // start inside the block's old place, so it is made after the move.  With
+  // nothing left, the next block starts there.
+  if (remaining >= sizeof(FreeBlockHeader)) {
+    FreeBlockHeader *newb = reinterpret_cast<FreeBlockHeader *>(
+        free_addr + new_length + sizeof(uint64_t));
+    newb->length = remaining;
+    newb->next = next;
+    *next_ptr = ToOffset(newb);
+  } else {
+    *next_ptr = next;
   }
   return len_ptr + 1;
 }
