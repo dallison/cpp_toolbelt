@@ -465,6 +465,59 @@ TEST(BufferTest, String) {
   free(buffer);
 }
 
+TEST(BufferTest, StringCopiedFromTheSameBuffer) {
+  char *buffer = (char *)calloc(256, 1);
+  int resizes = 0;
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(
+      256, [&resizes, &buffer](PayloadBuffer **p, size_t, size_t new_size) {
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wclass-memaccess"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#endif
+        *p = reinterpret_cast<PayloadBuffer *>(realloc(*p, new_size));
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+        buffer = reinterpret_cast<char *>(*p);
+        ++resizes;
+      });
+  constexpr int kCopies = 7;
+  PayloadBuffer::AllocateMainMessage(&pb, (kCopies + 1) * sizeof(BufferOffset));
+  const BufferOffset first = pb->message;
+  auto copy = [first](int i) {
+    return first + BufferOffset((i + 1) * sizeof(BufferOffset));
+  };
+
+  std::string value(1500, '\0');
+  for (size_t i = 0; i < value.size(); ++i) {
+    value[i] = static_cast<char>('a' + i % 26);
+  }
+  PayloadBuffer::SetString(&pb, value, first);
+
+  const int resizes_before_copies = resizes;
+  for (int i = 0; i < kCopies; ++i) {
+    PayloadBuffer::SetString(&pb, pb->GetStringView(first), copy(i));
+  }
+  ASSERT_GT(resizes, resizes_before_copies);
+  for (int i = 0; i < kCopies; ++i) {
+    ASSERT_EQ(value, pb->GetStringView(copy(i))) << i;
+  }
+
+  // A part of itself, ending past the end of the shorter string.
+  PayloadBuffer::SetString(&pb, pb->GetStringView(first).substr(10, 600),
+                           first);
+  ASSERT_EQ(value.substr(10, 600), pb->GetStringView(first));
+  ASSERT_EQ(value, pb->GetStringView(copy(0)));
+
+  pb->~PayloadBuffer();
+  free(buffer);
+}
+
 TEST(BufferTest, HostileStringLengthIsClamped) {
   char *buffer = (char *)calloc(1, 4096);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);

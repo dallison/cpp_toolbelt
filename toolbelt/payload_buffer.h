@@ -471,6 +471,13 @@ struct PayloadBuffer {
            reinterpret_cast<const char *>(this);
   }
 
+  // The offset of 'p' if it points into this buffer, otherwise 0.
+  BufferOffset ContainedOffset(const void *p) const {
+    const uintptr_t at = reinterpret_cast<uintptr_t>(p);
+    const uintptr_t start = reinterpret_cast<uintptr_t>(this);
+    return at > start && at - start < full_size ? BufferOffset(at - start) : 0;
+  }
+
   void InsertNewFreeBlockAtEnd(FreeBlockHeader *free_block,
                                FreeBlockHeader *prev, uint32_t length);
 
