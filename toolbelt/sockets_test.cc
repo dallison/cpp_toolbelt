@@ -7,6 +7,7 @@
 #include <thread>
 #include "absl/status/status_matchers.h"
 #include "toolbelt/hexdump.h"
+#include "co/coroutine.h"
 
 #define VAR(a) a##__COUNTER__
 #define EVAL_AND_ASSERT_OK(expr) EVAL_AND_ASSERT_OK2(VAR(r_), expr)
@@ -109,7 +110,7 @@ TEST(SocketsTest, UnixSocket) {
 
         absl::Status s2 = socket.ReceiveFds(fds, c);
         ASSERT_TRUE(s2.ok());
-        ASSERT_EQ(3, fds.size());
+        ASSERT_EQ(std::size_t{3}, fds.size());
     });
 
     co::Coroutine outgoing(scheduler, [&socket_name](co::Coroutine* c) {
@@ -198,7 +199,7 @@ TEST(SocketsTest, UnixSocketShortFdCountRead) {
         std::vector<toolbelt::FileDescriptor> fds;
         absl::Status s2 = socket.ReceiveFds(fds, c);
         ASSERT_TRUE(s2.ok());
-        ASSERT_EQ(1, fds.size());
+        ASSERT_EQ(std::size_t{1}, fds.size());
     });
 
     co::Coroutine outgoing(scheduler, [&socket_name](co::Coroutine* c) {
@@ -264,7 +265,7 @@ TEST(SocketsTest, TCPSocket) {
         absl::StatusOr<std::vector<char>> b = socket.ReceiveVariableLengthMessage(c);
         ASSERT_TRUE(b.ok());
         auto buf = b.value();
-        ASSERT_EQ(12, buf.size());  // "hello world\0"
+        ASSERT_EQ(std::size_t{12}, buf.size());  // "hello world\0"
         ASSERT_EQ("hello world", std::string(buf.data(), 11));
     });
 
@@ -310,7 +311,7 @@ TEST(SocketsTest, BigTCPSocketNonblocking) {
                 std::cerr << "Mismatch at " << i << ": " << buf[i] << " != " << 'a' + (i % 26)
                           << "\n";
             }
-            ASSERT_EQ('a' + ((i + 4) % 26), buf[i]);
+            ASSERT_EQ(static_cast<char>('a' + ((i + 4) % 26)), buf[i]);
         }
     });
 
@@ -326,7 +327,7 @@ TEST(SocketsTest, BigTCPSocketNonblocking) {
         absl::StatusOr<ssize_t> nsent =
                 socket.SendMessage(buffer.data() + 4, buffer.size() - 4, c);
         ASSERT_TRUE(nsent.ok());
-        ASSERT_EQ(buffer.size(), nsent.value());
+        ASSERT_EQ(buffer.size(), static_cast<std::size_t>(nsent.value()));
     });
 
     scheduler.Run();
@@ -358,7 +359,7 @@ TEST(SocketsTest, BigTCPSocketBlocking) {
                         std::cerr << "Mismatch at " << i << ": " << buf[i]
                                   << " != " << 'a' + (i % 26) << "\n";
                     }
-                    ASSERT_EQ('a' + ((i + 4) % 26), buf[i]);
+                    ASSERT_EQ(static_cast<char>('a' + ((i + 4) % 26)), buf[i]);
                 }
             });
 
@@ -373,7 +374,7 @@ TEST(SocketsTest, BigTCPSocketBlocking) {
         absl::StatusOr<ssize_t> nsent =
                 socket.SendMessage(buffer.data() + 4, buffer.size() - 4, c);
         ASSERT_TRUE(nsent.ok());
-        ASSERT_EQ(buffer.size(), nsent.value());
+        ASSERT_EQ(buffer.size(), static_cast<std::size_t>(nsent.value()));
     });
 
     std::thread sender([&sendScheduler]() { sendScheduler.Run(); });
@@ -609,7 +610,7 @@ TEST(SocketsTest, UDPSocket_SendAndReceiveUnicast) {
   ASSERT_TRUE(sender.SendTo(sendto_address, TEST_DATA.data(), TEST_DATA.size()).ok());
 
   std::vector<char> Receive_buffer(TEST_DATA.size());
-  ASSERT_EQ(*Receiver.Receive(Receive_buffer.data(), Receive_buffer.size()), TEST_DATA.size());
+  ASSERT_EQ(static_cast<std::size_t>(*Receiver.Receive(Receive_buffer.data(), Receive_buffer.size())), TEST_DATA.size());
   ASSERT_EQ(std::string_view(Receive_buffer.data(), Receive_buffer.size()), TEST_DATA);
 }
 
@@ -632,7 +633,7 @@ TEST(SocketsTest, UDPSocket_SendAndReceiveBroadcast) {
   ASSERT_TRUE(sender.SendTo(sendto_address, TEST_DATA.data(), TEST_DATA.size()).ok());
 
   std::vector<char> Receive_buffer(TEST_DATA.size());
-  ASSERT_EQ(*Receiver.Receive(Receive_buffer.data(), Receive_buffer.size()), TEST_DATA.size());
+  ASSERT_EQ(static_cast<std::size_t>(*Receiver.Receive(Receive_buffer.data(), Receive_buffer.size())), TEST_DATA.size());
   ASSERT_EQ(std::string_view(Receive_buffer.data(), Receive_buffer.size()), TEST_DATA);
 }
 
@@ -663,7 +664,7 @@ TEST(SocketsTest, UDPSocket_SendAndReceiveMulticast) {
     while (absl::Now() < timeout) {
         auto status_or_len = Receiver.Receive(Receive_buffer.data(), Receive_buffer.size());
         if (status_or_len.ok()) {
-            ASSERT_EQ(*status_or_len, TEST_DATA.size());
+            ASSERT_EQ(static_cast<std::size_t>(*status_or_len), TEST_DATA.size());
             ASSERT_EQ(std::string_view(Receive_buffer.data(), Receive_buffer.size()), TEST_DATA);
             break;
         }
