@@ -531,7 +531,6 @@ inline void PayloadBuffer::VectorPush(PayloadBuffer **self, VectorHeader *hdr,
   // by the block size (in bytes).
   BufferOffset hdr_offset = (*self)->ToOffset(hdr);
 
-  uint32_t total_size = hdr->num_elements * sizeof(T);
   if (hdr->data == 0) {
     // The vector is empty, allocate it with a default size of 2.
     void *vecp = Allocate(self, 2 * sizeof(T), true, enable_small_block);
