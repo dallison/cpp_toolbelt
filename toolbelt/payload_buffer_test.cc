@@ -425,6 +425,61 @@ TEST(BufferTest, String) {
   free(buffer);
 }
 
+TEST(BufferTest, HostileStringLengthIsClamped) {
+  char *buffer = (char *)calloc(1, 4096);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
+  PayloadBuffer::AllocateMainMessage(&pb, 32);
+  BufferOffset offset = pb->message;
+  PayloadBuffer::SetString(&pb, std::string("hello"), offset);
+
+  const size_t received_size = pb->hwm;
+
+  // Corrupt the stored length to a huge value, simulating a hostile payload.
+  BufferOffset data_off = *pb->ToAddress<BufferOffset>(offset);
+  uint32_t *len = pb->ToAddress<uint32_t>(data_off);
+  *len = 0xffffffffu;
+
+  // A size-aware read clamps the length to what actually fits in the received
+  // buffer, so it never reads out of bounds (ASan would flag a violation).
+  std::string_view sv = pb->GetStringView(offset, received_size);
+  ASSERT_LE(sv.size(), received_size);
+  ASSERT_EQ(0, sv.compare(0, 5, "hello"));
+
+  // Inflating full_size must not expand what a size-aware read will accept.
+  pb->full_size = 0xffffffffu;
+  std::string_view sv2 = pb->GetStringView(offset, received_size);
+  ASSERT_LE(sv2.size(), received_size);
+  ASSERT_EQ(0, sv2.compare(0, 5, "hello"));
+  free(buffer);
+}
+
+TEST(BufferTest, ToAddressRequiresFullObjectFit) {
+  // A uint32_t length word whose start is inside the buffer but whose 4 bytes
+  // would run past the end must not be accepted (ASan heap-buffer-overflow).
+  const size_t received_size = 64;
+  char *buffer = (char *)calloc(1, received_size);
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(static_cast<uint32_t>(received_size));
+  pb->magic = toolbelt::kFixedBufferMagic;
+
+  // Offset where only 3 bytes remain in the trusted size.
+  const BufferOffset near_end =
+      static_cast<BufferOffset>(received_size - 3);
+  ASSERT_EQ(nullptr, pb->ToAddress<uint32_t>(near_end, received_size));
+  ASSERT_EQ(nullptr, pb->ToAddress<const uint32_t>(near_end, received_size));
+
+  // A single-byte (void) probe at the last valid byte is OK.
+  ASSERT_NE(nullptr, pb->ToAddress(received_size - 1, received_size));
+  ASSERT_EQ(nullptr, pb->ToAddress(received_size, received_size));
+
+  // GetStringView with a header whose data offset points at near_end must
+  // return empty rather than reading past the end.
+  BufferOffset header_off = 16;
+  *pb->ToAddress<BufferOffset>(header_off, received_size) = near_end;
+  std::string_view sv = pb->GetStringView(header_off, received_size);
+  ASSERT_TRUE(sv.empty());
+  free(buffer);
+}
+
 TEST(BufferTest, Vector) {
   char *buffer = (char *)calloc(1, 4096);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
