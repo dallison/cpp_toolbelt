@@ -54,8 +54,8 @@ add_library(toolbelt STATIC
     toolbelt/payload_buffer.h
     toolbelt/pipe.cc
     toolbelt/pipe.h
-    toolbelt/poller.cc
-    toolbelt/poller.h
+    toolbelt/async_waiter.cc
+    toolbelt/async_waiter.h
     toolbelt/sockets.cc
     toolbelt/sockets.h
     toolbelt/table.cc
