@@ -1,7 +1,7 @@
 // Copyright 2026 Mikael Persson
 // All Rights Reserved
 // See LICENSE file for licensing information.
-#include "toolbelt/poller.h"
+#include "toolbelt/async_waiter.h"
 
 #include <chrono>
 #include <poll.h>
@@ -9,7 +9,7 @@
 
 namespace toolbelt {
 
-PosixPoller::PosixPoller(uint64_t yield_sleep_ns) : Poller(), yield_sleep_ns_(yield_sleep_ns) {}
+PosixPoller::PosixPoller(uint64_t yield_sleep_ns) : AsyncWaiter(), yield_sleep_ns_(yield_sleep_ns) {}
 
 void PosixPoller::Yield() const {
   if (yield_sleep_ns_ == 0) {

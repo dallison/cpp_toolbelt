@@ -3,7 +3,7 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
-#include "toolbelt/poller.h"
+#include "toolbelt/async_waiter.h"
 #include "toolbelt/fd.h"
 
 #include <chrono>
@@ -66,9 +66,9 @@ public:
   absl::Status SetPipeSize(size_t size);
 
   virtual absl::StatusOr<ssize_t> Read(char *buffer, size_t length,
-                                       const Poller *c = nullptr);
+                                       const AsyncWaiter *c = nullptr);
   virtual absl::StatusOr<ssize_t> Write(const char *buffer, size_t length,
-                                        const Poller *c = nullptr);
+                                        const AsyncWaiter *c = nullptr);
 
 protected:
   // RAII classes for keeping coroutines from interleaving reads or writes on a
@@ -78,7 +78,7 @@ protected:
   //
   // Same applies to non-coroutine use except we block with a sleep.
   struct ScopedRead {
-    ScopedRead(Pipe &p, const Poller *c) : pipe(p) {
+    ScopedRead(Pipe &p, const AsyncWaiter *c) : pipe(p) {
       while (pipe.read_in_progress_) {
         if (c) {
           c->Yield();
@@ -94,7 +94,7 @@ protected:
   };
 
   struct ScopedWrite {
-    ScopedWrite(Pipe &p, const Poller *c) : pipe(p) {
+    ScopedWrite(Pipe &p, const AsyncWaiter *c) : pipe(p) {
       while (pipe.write_in_progress_) {
         if (c) {
           c->Yield();
@@ -145,15 +145,15 @@ public:
 
   // You can't use raw buffers with shared ptr pipes.
   absl::StatusOr<ssize_t> Read(char *, size_t ,
-                               const Poller * = nullptr) override {
+                               const AsyncWaiter * = nullptr) override {
     return absl::InternalError("Not supported on SharedPtrPipe");
   }
   absl::StatusOr<ssize_t> Write(const char *, size_t ,
-                                const Poller *c = nullptr) override {
+                                const AsyncWaiter *c = nullptr) override {
     return absl::InternalError("Not supported on SharedPtrPipe");
   }
 
-  absl::StatusOr<std::shared_ptr<T>> Read(const Poller *c = nullptr) {
+  absl::StatusOr<std::shared_ptr<T>> Read(const AsyncWaiter *c = nullptr) {
     char buffer[sizeof(std::shared_ptr<T>)];
     size_t length = sizeof(buffer);
     size_t total = 0;
@@ -199,7 +199,7 @@ public:
   }
 
   // This makes the pipe an owner of the pointer.
-  absl::Status Write(std::shared_ptr<T> p, const Poller *c = nullptr) {
+  absl::Status Write(std::shared_ptr<T> p, const AsyncWaiter *c = nullptr) {
     // On entry, ref count for p = N
     char buffer[sizeof(std::shared_ptr<T>)];
 

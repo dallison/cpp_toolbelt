@@ -39,16 +39,16 @@ struct WaitFd {
   uint32_t events;
 };
 
-// This is a Poller. It's an abstract interface to a poll/wait/yield 
+// This is a AsyncWaiter. It's an abstract interface to a poll/wait/yield 
 // mechanism, such as a vanilla POSIX implementation or coroutines.
-class Poller {
+class AsyncWaiter {
 public:
-  Poller() = default;
-  Poller(const Poller&) = delete;
-  Poller(Poller&&) = delete;
-  Poller& operator=(const Poller&) = delete;
-  Poller& operator=(Poller&&) = delete;
-  virtual ~Poller() = default;
+  AsyncWaiter() = default;
+  AsyncWaiter(const AsyncWaiter&) = delete;
+  AsyncWaiter(AsyncWaiter&&) = delete;
+  AsyncWaiter& operator=(const AsyncWaiter&) = delete;
+  AsyncWaiter& operator=(AsyncWaiter&&) = delete;
+  virtual ~AsyncWaiter() = default;
 
   // Yield cpu time (to another thread, process, coroutine, etc.).
   virtual void Yield() const = 0;
@@ -258,7 +258,7 @@ protected:
   virtual int PollWithMutableFds(std::vector<struct pollfd> &fds) const = 0;
 };
 
-class PosixPoller : public Poller {
+class PosixPoller : public AsyncWaiter {
 public:
   explicit PosixPoller(uint64_t yield_sleep_ns = 0);
 
