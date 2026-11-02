@@ -149,7 +149,7 @@ public:
     return absl::InternalError("Not supported on SharedPtrPipe");
   }
   absl::StatusOr<ssize_t> Write(const char *, size_t ,
-                                const AsyncWaiter *c = nullptr) override {
+                                const AsyncWaiter * = nullptr) override {
     return absl::InternalError("Not supported on SharedPtrPipe");
   }
 
