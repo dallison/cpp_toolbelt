@@ -723,6 +723,218 @@ TEST(BufferTest, Resizeable) {
   free(pb);
 }
 
+TEST(BufferTest, FullFixedBufferSetsAllocationFailed) {
+  alignas(8) char buffer[256] = {};
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(sizeof(buffer), false);
+  ASSERT_FALSE(pb->AllocationFailed());
+
+  ASSERT_EQ(nullptr, PayloadBuffer::Allocate(&pb, 1024));
+  ASSERT_TRUE(pb->AllocationFailed());
+
+  // The writer still treats the buffer as valid, so smaller allocations keep
+  // working.  A reader that masks only the bitmap flag sees an invalid magic.
+  ASSERT_TRUE(pb->IsValidMagic());
+  ASSERT_FALSE(pb->IsMoveable());
+  ASSERT_NE(toolbelt::kFixedBufferMagic, pb->magic & toolbelt::kBitMapMask);
+  ASSERT_NE(nullptr, PayloadBuffer::Allocate(&pb, 16));
+  ASSERT_TRUE(pb->AllocationFailed());
+}
+
+TEST(BufferTest, ZeroSizeAllocationIsNotAFailure) {
+  alignas(8) char buffer[256] = {};
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(sizeof(buffer), false);
+  ASSERT_EQ(nullptr, PayloadBuffer::Allocate(&pb, 0));
+  ASSERT_FALSE(pb->AllocationFailed());
+
+  ASSERT_NE(nullptr, PayloadBuffer::AllocateMainMessage(&pb, sizeof(VectorHeader)));
+  VectorHeader *hdr = pb->ToAddress<VectorHeader>(pb->message);
+  ASSERT_TRUE(PayloadBuffer::VectorReserve<uint32_t>(&pb, hdr, 0));
+  ASSERT_TRUE(PayloadBuffer::VectorResize<uint32_t>(&pb, hdr, 0));
+  ASSERT_FALSE(pb->AllocationFailed());
+}
+
+TEST(BufferTest, MainMessageAndMetadataFailCleanly) {
+  alignas(8) char buffer[256] = {};
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(sizeof(buffer), false);
+
+  ASSERT_EQ(nullptr, PayloadBuffer::AllocateMainMessage(&pb, 1024));
+  ASSERT_EQ(0u, pb->message);
+
+  char md[1024] = {};
+  ASSERT_FALSE(PayloadBuffer::AllocateMetadata(&pb, md, sizeof(md)));
+  ASSERT_EQ(0u, pb->metadata);
+  ASSERT_TRUE(PayloadBuffer::AllocateMetadata(&pb, md, 16));
+  ASSERT_NE(0u, pb->metadata);
+  ASSERT_TRUE(pb->AllocationFailed());
+}
+
+TEST(BufferTest, SetStringFailureKeepsOldString) {
+  alignas(8) char buffer[256] = {};
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(sizeof(buffer), false);
+  ASSERT_NE(nullptr, PayloadBuffer::AllocateMainMessage(&pb, 32));
+  BufferOffset offset = pb->message;
+
+  ASSERT_NE(nullptr, PayloadBuffer::SetString(&pb, std::string("hello"), offset));
+  ASSERT_FALSE(pb->AllocationFailed());
+
+  ASSERT_EQ(nullptr,
+            PayloadBuffer::SetString(&pb, std::string(1000, 'x'), offset));
+  ASSERT_TRUE(pb->AllocationFailed());
+  ASSERT_EQ("hello", pb->GetString(offset));
+
+  absl::Span<char> span = PayloadBuffer::AllocateString(&pb, 1000, offset);
+  ASSERT_TRUE(span.empty());
+  ASSERT_EQ(nullptr, span.data());
+  ASSERT_EQ("hello", pb->GetString(offset));
+}
+
+TEST(BufferTest, SetStringFailureOnEmptyString) {
+  alignas(8) char buffer[256] = {};
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(sizeof(buffer), false);
+  ASSERT_NE(nullptr, PayloadBuffer::AllocateMainMessage(&pb, 32));
+  BufferOffset offset = pb->message;
+
+  ASSERT_EQ(nullptr,
+            PayloadBuffer::SetString(&pb, std::string(1000, 'x'), offset));
+  ASSERT_EQ(0u, *pb->ToAddress<BufferOffset>(offset));
+  ASSERT_EQ("", pb->GetString(offset));
+}
+
+TEST(BufferTest, VectorFailureLeavesVectorIntact) {
+  alignas(8) char buffer[512] = {};
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(sizeof(buffer), false);
+  ASSERT_NE(nullptr,
+            PayloadBuffer::AllocateMainMessage(&pb, sizeof(VectorHeader)));
+  BufferOffset hdr_offset = pb->message;
+
+  uint32_t pushed = 0;
+  for (;;) {
+    VectorHeader *hdr = pb->ToAddress<VectorHeader>(hdr_offset);
+    if (!PayloadBuffer::VectorPush<uint32_t>(&pb, hdr, pushed + 1)) {
+      break;
+    }
+    pushed++;
+    ASSERT_LT(pushed, 1000u);
+  }
+  ASSERT_GT(pushed, 0u);
+  ASSERT_TRUE(pb->AllocationFailed());
+
+  VectorHeader *hdr = pb->ToAddress<VectorHeader>(hdr_offset);
+  ASSERT_EQ(pushed, hdr->num_elements);
+  for (uint32_t i = 0; i < pushed; i++) {
+    ASSERT_EQ(i + 1, pb->VectorGet<uint32_t>(hdr, i));
+  }
+
+  BufferOffset data = hdr->data;
+  ASSERT_FALSE(PayloadBuffer::VectorReserve<uint32_t>(&pb, hdr, 1000));
+  ASSERT_FALSE(PayloadBuffer::VectorResize<uint32_t>(&pb, hdr, 1000));
+  ASSERT_EQ(pushed, hdr->num_elements);
+  ASSERT_EQ(data, hdr->data);
+  for (uint32_t i = 0; i < pushed; i++) {
+    ASSERT_EQ(i + 1, pb->VectorGet<uint32_t>(hdr, i));
+  }
+}
+
+TEST(BufferTest, EmptyVectorFailure) {
+  alignas(8) char buffer[256] = {};
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(sizeof(buffer), false);
+  ASSERT_NE(nullptr,
+            PayloadBuffer::AllocateMainMessage(&pb, sizeof(VectorHeader)));
+  VectorHeader *hdr = pb->ToAddress<VectorHeader>(pb->message);
+
+  ASSERT_FALSE(PayloadBuffer::VectorReserve<uint64_t>(&pb, hdr, 1000));
+  ASSERT_FALSE(PayloadBuffer::VectorResize<uint64_t>(&pb, hdr, 1000));
+  ASSERT_EQ(0u, hdr->num_elements);
+  ASSERT_EQ(0u, hdr->data);
+}
+
+TEST(BufferTest, NewMessageFailureLeavesOffset) {
+  alignas(8) char buffer[256] = {};
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(sizeof(buffer), false);
+  ASSERT_NE(nullptr, PayloadBuffer::AllocateMainMessage(&pb, 16));
+  BufferOffset field = pb->message;
+
+  ASSERT_EQ(nullptr, PayloadBuffer::NewMessage<char>(&pb, 1024, field));
+  ASSERT_EQ(0u, *pb->ToAddress<BufferOffset>(field));
+  ASSERT_TRUE(pb->AllocationFailed());
+}
+
+TEST(BufferTest, SmallBlocksExhaustFixedBuffer) {
+  alignas(8) char buffer[1024] = {};
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(sizeof(buffer), true);
+
+  int allocated = 0;
+  for (;;) {
+    void *p = PayloadBuffer::Allocate(&pb, 16);
+    if (p == nullptr) {
+      break;
+    }
+    memset(p, 0xa5, 16);
+    allocated++;
+    ASSERT_LT(allocated, 1000);
+  }
+  ASSERT_GT(allocated, 0);
+  ASSERT_TRUE(pb->AllocationFailed());
+  ASSERT_TRUE(pb->IsValidMagic());
+  ASSERT_TRUE(pb->BitmapsEnabled());
+}
+
+TEST(BufferTest, VectorResizeZeroesNewElements) {
+  alignas(8) char buffer[1024];
+  memset(buffer, 0xff, sizeof(buffer));
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(sizeof(buffer), false);
+  ASSERT_NE(nullptr,
+            PayloadBuffer::AllocateMainMessage(&pb, sizeof(VectorHeader)));
+  VectorHeader *hdr = pb->ToAddress<VectorHeader>(pb->message);
+
+  ASSERT_TRUE(PayloadBuffer::VectorReserve<uint32_t>(&pb, hdr, 8));
+  ASSERT_TRUE(PayloadBuffer::VectorResize<uint32_t>(&pb, hdr, 8));
+  for (int i = 0; i < 8; i++) {
+    ASSERT_EQ(0u, pb->VectorGet<uint32_t>(hdr, i));
+  }
+
+  uint32_t *data = pb->ToAddress<uint32_t>(hdr->data);
+  for (uint32_t i = 0; i < 8; i++) {
+    data[i] = 100 + i;
+  }
+  ASSERT_TRUE(PayloadBuffer::VectorResize<uint32_t>(&pb, hdr, 2));
+  ASSERT_TRUE(PayloadBuffer::VectorResize<uint32_t>(&pb, hdr, 6));
+  ASSERT_EQ(100u, pb->VectorGet<uint32_t>(hdr, 0));
+  ASSERT_EQ(101u, pb->VectorGet<uint32_t>(hdr, 1));
+  for (int i = 2; i < 6; i++) {
+    ASSERT_EQ(0u, pb->VectorGet<uint32_t>(hdr, i));
+  }
+}
+
+TEST(BufferTest, SmallBlockUsesFreeListWhenRunDoesNotFit) {
+  alignas(8) char buffer[256] = {};
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(sizeof(buffer), true);
+  ASSERT_TRUE(pb->BitmapsEnabled());
+
+  void *p = PayloadBuffer::Allocate(&pb, 16);
+  ASSERT_NE(nullptr, p);
+  ASSERT_FALSE(pb->AllocationFailed());
+  memset(p, 0xa5, 16);
+
+  void *q = PayloadBuffer::Realloc(&pb, p, 24);
+  ASSERT_NE(nullptr, q);
+  ASSERT_EQ(0xa5, static_cast<unsigned char *>(q)[15]);
+  pb->Free(q);
+
+  void *r = PayloadBuffer::Allocate(&pb, 16);
+  ASSERT_NE(nullptr, r);
+  pb->Free(r);
+  ASSERT_FALSE(pb->AllocationFailed());
+  ASSERT_TRUE(pb->IsValidMagic());
+}
+
+TEST(BufferTest, PrimeBitmapAllocatorFailsInFullBuffer) {
+  alignas(8) char buffer[256] = {};
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(sizeof(buffer), true);
+  ASSERT_FALSE(PayloadBuffer::PrimeBitmapAllocator(&pb, 128));
+  ASSERT_TRUE(pb->AllocationFailed());
+}
+
 int main(int argc, char **argv) {
   testing::InitGoogleTest(&argc, argv);
 
