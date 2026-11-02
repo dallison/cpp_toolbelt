@@ -5,6 +5,7 @@ load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 cc_library(
     name = "toolbelt",
     srcs = [
+        "async_waiter.cc",
         "color.cc",
         "fd.cc",
         "hexdump.cc",
@@ -17,6 +18,7 @@ cc_library(
         "stacktrace.cc",
     ],
     hdrs = [
+        "async_waiter.h",
         "bitset.h",
         "clock.h",
         "color.h",
@@ -37,7 +39,6 @@ cc_library(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:str_format",
         "@abseil-cpp//absl/types:span",
-        "@coroutines//:co",
     ],
 )
 
@@ -91,6 +92,7 @@ cc_test(
         "@abseil-cpp//absl/status:status_matchers",
         "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
+        "@coroutines//:co",
     ],
 )
 
@@ -105,6 +107,7 @@ cc_test(
         "@abseil-cpp//absl/status:status_matchers",
         "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
+        "@coroutines//:co",
     ],
 )
 
