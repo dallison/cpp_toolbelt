@@ -94,6 +94,46 @@ TEST(BufferTest, FreeThenAlloc) {
   free(buffer);
 }
 
+// A block that grows into the free block below it moves down.  The free
+// blocks below leave 8 bytes, the smallest free block, and nothing.
+TEST(BufferTest, ReallocIntoFreeBlockBelow) {
+  for (const uint32_t below : {256u, 248u}) {
+    char *buffer = (char *)calloc(1, 4096);
+    PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
+    void *lower = PayloadBuffer::Allocate(&pb, below, true, false);
+    auto *block =
+        static_cast<uint8_t *>(PayloadBuffer::Allocate(&pb, 256, true, false));
+    auto *upper =
+        static_cast<uint8_t *>(PayloadBuffer::Allocate(&pb, 256, true, false));
+    for (uint32_t i = 0; i < 256; ++i) {
+      block[i] = static_cast<uint8_t>(i);
+    }
+    memset(upper, 0xc5, 256);
+    const uint64_t upper_size = *(reinterpret_cast<uint64_t *>(upper) - 1);
+    pb->Free(lower);
+
+    auto *grown = static_cast<uint8_t *>(
+        PayloadBuffer::Realloc(&pb, block, 512, true, false));
+    ASSERT_EQ(grown, lower) << below;
+    for (uint32_t i = 0; i < 256; ++i) {
+      ASSERT_EQ(grown[i], i) << below;
+    }
+    for (uint32_t i = 256; i < 512; ++i) {
+      ASSERT_EQ(grown[i], 0) << below;
+    }
+    EXPECT_EQ(*(reinterpret_cast<uint64_t *>(upper) - 1), upper_size) << below;
+    for (uint32_t i = 0; i < 256; ++i) {
+      ASSERT_EQ(upper[i], 0xc5) << below;
+    }
+    for (const auto *free_block = pb->FreeList(); free_block != nullptr;
+         free_block =
+             pb->ToAddress<toolbelt::FreeBlockHeader>(free_block->next)) {
+      EXPECT_GE(free_block->length, sizeof(toolbelt::FreeBlockHeader)) << below;
+    }
+    free(buffer);
+  }
+}
+
 TEST(BufferTest, SmallBlockAllocSimple) {
   char *buffer = (char *)calloc(1, 4096);
   PayloadBuffer *pb = new (buffer) PayloadBuffer(4096);
@@ -422,6 +462,59 @@ TEST(BufferTest, String) {
 
   std::string rs = pb->GetString(offset);
   ASSERT_EQ("foobar has been replaced", rs);
+  free(buffer);
+}
+
+TEST(BufferTest, StringCopiedFromTheSameBuffer) {
+  char *buffer = (char *)calloc(256, 1);
+  int resizes = 0;
+  PayloadBuffer *pb = new (buffer) PayloadBuffer(
+      256, [&resizes, &buffer](PayloadBuffer **p, size_t, size_t new_size) {
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wclass-memaccess"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#endif
+        *p = reinterpret_cast<PayloadBuffer *>(realloc(*p, new_size));
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+        buffer = reinterpret_cast<char *>(*p);
+        ++resizes;
+      });
+  constexpr int kCopies = 7;
+  PayloadBuffer::AllocateMainMessage(&pb, (kCopies + 1) * sizeof(BufferOffset));
+  const BufferOffset first = pb->message;
+  auto copy = [first](int i) {
+    return first + BufferOffset((i + 1) * sizeof(BufferOffset));
+  };
+
+  std::string value(1500, '\0');
+  for (size_t i = 0; i < value.size(); ++i) {
+    value[i] = static_cast<char>('a' + i % 26);
+  }
+  PayloadBuffer::SetString(&pb, value, first);
+
+  const int resizes_before_copies = resizes;
+  for (int i = 0; i < kCopies; ++i) {
+    PayloadBuffer::SetString(&pb, pb->GetStringView(first), copy(i));
+  }
+  ASSERT_GT(resizes, resizes_before_copies);
+  for (int i = 0; i < kCopies; ++i) {
+    ASSERT_EQ(value, pb->GetStringView(copy(i))) << i;
+  }
+
+  // A part of itself, ending past the end of the shorter string.
+  PayloadBuffer::SetString(&pb, pb->GetStringView(first).substr(10, 600),
+                           first);
+  ASSERT_EQ(value.substr(10, 600), pb->GetStringView(first));
+  ASSERT_EQ(value, pb->GetStringView(copy(0)));
+
+  pb->~PayloadBuffer();
   free(buffer);
 }
 
