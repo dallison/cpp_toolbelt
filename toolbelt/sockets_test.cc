@@ -202,7 +202,7 @@ TEST(SocketsTest, UnixSocketShortFdCountRead) {
         ASSERT_EQ(std::size_t{1}, fds.size());
     });
 
-    co::Coroutine outgoing(scheduler, [&socket_name](co::Coroutine* c) {
+    co::Coroutine outgoing(scheduler, [&socket_name](co::Coroutine*) {
         toolbelt::UnixSocket socket;
         absl::Status s = socket.Connect(socket_name);
         ASSERT_TRUE(s.ok());

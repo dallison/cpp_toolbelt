@@ -563,17 +563,12 @@ TEST(BufferTest, VectorPushWithResize) {
   bool resized = false;
   PayloadBuffer *pb = new (buffer) PayloadBuffer(
       256, [&resized, &buffer](PayloadBuffer **p, size_t, size_t new_size) {
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wclass-memaccess"
-#elif defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
         *p = reinterpret_cast<PayloadBuffer *>(realloc(*p, new_size));
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
         buffer = reinterpret_cast<char *>(*p);
@@ -606,17 +601,12 @@ TEST(BufferTest, VectorReserveWithResize) {
   bool resized = false;
   PayloadBuffer *pb = new (buffer) PayloadBuffer(
       256, [&resized, &buffer](PayloadBuffer **p, size_t, size_t new_size) {
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wclass-memaccess"
-#elif defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
         *p = reinterpret_cast<PayloadBuffer *>(realloc(*p, new_size));
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
         buffer = reinterpret_cast<char *>(*p);
@@ -642,17 +632,12 @@ TEST(BufferTest, VectorResizeWithResize) {
   bool resized = false;
   PayloadBuffer *pb = new (buffer) PayloadBuffer(
       256, [&resized, &buffer](PayloadBuffer **p, size_t, size_t new_size) {
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wclass-memaccess"
-#elif defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
         *p = reinterpret_cast<PayloadBuffer *>(realloc(*p, new_size));
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
         buffer = reinterpret_cast<char *>(*p);
@@ -679,17 +664,12 @@ TEST(BufferTest, Resizeable) {
   PayloadBuffer *pb = new (buffer) PayloadBuffer(
       256, [&resized](PayloadBuffer **p, size_t, size_t new_size) {
         std::cout << "resize for " << new_size << std::endl;
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wclass-memaccess"
-#elif defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
         *p = reinterpret_cast<PayloadBuffer *>(realloc(*p, new_size));
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
         resized = true;

@@ -69,7 +69,7 @@ absl::StatusOr<size_t> Pipe::GetPipeSize() {
 #endif
 }
 
-absl::Status Pipe::SetPipeSize(size_t size) {
+absl::Status Pipe::SetPipeSize([[maybe_unused]] size_t size) {
 #if defined(__linux__)
   int e = fcntl(write_.Fd(), F_SETPIPE_SZ, size);
   if (e == -1) {
