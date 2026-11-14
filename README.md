@@ -913,7 +913,7 @@ int value = resizable->VectorGet<int>(&vec_hdr, 0);  // Returns 42
 
 ### TriggerFd
 
-A file descriptor that can be used to trigger events. Implemented as an `eventfd` on Linux or a pipe on other systems.
+A file descriptor that can be used to trigger events. Implemented as an `eventfd` on Linux and a Unix domain `socketpair` on other POSIX systems, including macOS and QNX.
 
 **Header:** `toolbelt/triggerfd.h`
 
