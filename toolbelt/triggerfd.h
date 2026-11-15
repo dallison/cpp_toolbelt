@@ -13,7 +13,8 @@ namespace toolbelt {
 
 // A TriggerFd is a file descriptor that can be used to trigger
 // an event.  If the facility is available, it is implemented
-// as an eventfd on Linux, otherwise a Unix domain socketpair.
+// as an eventfd on Linux, a Unix domain socketpair on QNX, and a pipe
+// everywhere else.
 class TriggerFd {
  public:
   TriggerFd() = default;

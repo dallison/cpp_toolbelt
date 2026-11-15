@@ -5,17 +5,18 @@
 #include "toolbelt/triggerfd.h"
 #include "absl/strings/str_format.h"
 
-// Linux has eventfd, which is the cheapest pollable trigger.  Everywhere else
-// (macOS, QNX, other POSIX) use a Unix domain socketpair.  Pipes are a poor
-// fit: on QNX they go through a single-threaded pipe service, and a socketpair
-// is pollable, nonblocking, and passable over SCM_RIGHTS on every POSIX system
-// we care about.
+// Linux has eventfd, which is the cheapest pollable trigger.  QNX pipes go
+// through a single-threaded pipe service, so QNX uses a Unix domain socketpair.
+// Every other POSIX system, including macOS, keeps the pipe.  A socketpair is
+// slower there, and its read end always reports POLLOUT.
 #include <unistd.h>
 #if defined(__linux__)
 #include <sys/eventfd.h>
-#else
+#elif defined(__QNX__) || defined(__QNXNTO__)
 #include <sys/socket.h>
 #include <sys/types.h>
+#else
+#include <fcntl.h>
 #endif
 
 namespace toolbelt {
@@ -46,7 +47,7 @@ absl::Status TriggerFd::Open() {
   }
   poll_fd_.SetFd(fd);
   trigger_fd_ = poll_fd_;
-#else
+#elif defined(__QNX__) || defined(__QNXNTO__)
   int fds[2];
   if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == -1) {
     return absl::InternalError(absl::StrFormat(
@@ -61,6 +62,23 @@ absl::Status TriggerFd::Open() {
   if (absl::Status status = trigger_fd_.SetNonBlocking(); !status.ok()) {
     return status;
   }
+#else
+  int pipes[2];
+  if (pipe(pipes) == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Unable to create trigger fd pipe: %s", strerror(errno)));
+  }
+  // Both ends of the pipe are nonblocking.
+  if (fcntl(pipes[0], F_SETFL, (fcntl(pipes[0], F_GETFL) | O_NONBLOCK)) == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Unable to set non-blocking on read pipe: %s", strerror(errno)));
+  }
+  if (fcntl(pipes[1], F_SETFL, (fcntl(pipes[1], F_GETFL) | O_NONBLOCK)) == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Unable to set non-blocking on write pipe: %s", strerror(errno)));
+  }
+  poll_fd_.SetFd(pipes[0]);    // Read end
+  trigger_fd_.SetFd(pipes[1]); // Write end.
 #endif
   return absl::OkStatus();
 }
@@ -71,7 +89,7 @@ void TriggerFd::Trigger() {
   int64_t val = 1;
   (void)::write(trigger_fd_.Fd(), &val, 8);
 #else
-  // Unix domain socket.  Write a single byte to it.
+  // Pipe, or a socketpair on QNX.  Write a single byte to it.
   char val = 'x';
   (void)::write(trigger_fd_.Fd(), &val, 1);
 #endif
@@ -85,8 +103,8 @@ bool TriggerFd::Clear() {
   ssize_t n = ::read(poll_fd_.Fd(), &val, 8);
   return (n > 0);
 #else
-  // Unix domain socket.  Read all pending bytes.  The socket is nonblocking
-  // so we get EAGAIN once it has been drained.
+  // Pipe, or a socketpair on QNX.  Read all pending bytes.  The fd is
+  // nonblocking, so we get EAGAIN once it has been drained.
   bool was_triggered = false;
   for (;;) {
     char buffer[256];
