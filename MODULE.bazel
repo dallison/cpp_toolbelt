@@ -19,5 +19,10 @@ git_override(
     module_name = "coroutines",
     commit = "f4bcdffa67315d9aefaed6a802731263c0e0c19b",
     remote = "https://github.com/dallison/co.git",
+    # GCC 15 still emits TSan function entry/exit hooks around a stack switch,
+    # which corrupts the shadow stack (Ubuntu 26.04 CI). This is the fix from
+    # dallison/co c2cbd0f, applied onto the pinned 3.4.1 commit.
+    patches = ["//third_party:coroutines_tsan.patch"],
+    patch_strip = 1,
 )
 
