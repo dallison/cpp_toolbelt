@@ -1,6 +1,38 @@
 package(default_visibility = ["//visibility:public"])
 
+load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
 load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+# How a publisher wakes a waiting subscriber. "default" keeps the platform
+# choice in triggerfd.h: eventfd on Linux, a socketpair on QNX, and a pipe
+# elsewhere.
+#
+#   bazel build --//toolbelt:trigger_mechanism=socketpair //toolbelt:triggerfd_test
+string_flag(
+    name = "trigger_mechanism",
+    build_setting_default = "default",
+    values = [
+        "default",
+        "eventfd",
+        "pipe",
+        "socketpair",
+    ],
+)
+
+config_setting(
+    name = "trigger_mechanism_eventfd",
+    flag_values = {":trigger_mechanism": "eventfd"},
+)
+
+config_setting(
+    name = "trigger_mechanism_pipe",
+    flag_values = {":trigger_mechanism": "pipe"},
+)
+
+config_setting(
+    name = "trigger_mechanism_socketpair",
+    flag_values = {":trigger_mechanism": "socketpair"},
+)
 
 cc_library(
     name = "toolbelt",
@@ -33,6 +65,12 @@ cc_library(
         "triggerfd.h",
         "stacktrace.h",
     ],
+    local_defines = select({
+        ":trigger_mechanism_eventfd": ["TOOLBELT_TRIGGERFD_SIGNAL_MECHANISM=TOOLBELT_TRIGGERFD_EVENTFD"],
+        ":trigger_mechanism_pipe": ["TOOLBELT_TRIGGERFD_SIGNAL_MECHANISM=TOOLBELT_TRIGGERFD_PIPE"],
+        ":trigger_mechanism_socketpair": ["TOOLBELT_TRIGGERFD_SIGNAL_MECHANISM=TOOLBELT_TRIGGERFD_SOCKETPAIR"],
+        "//conditions:default": [],
+    }),
     deps = [
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
