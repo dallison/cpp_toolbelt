@@ -5,21 +5,61 @@
 #include "toolbelt/triggerfd.h"
 #include "absl/strings/str_format.h"
 
-// Linux has eventfd, which is the cheapest pollable trigger.  QNX pipes go
-// through a single-threaded pipe service, so QNX uses a Unix domain socketpair.
-// Every other POSIX system, including macOS, keeps the pipe.  A socketpair is
-// slower there, and its read end always reports POLLOUT.
 #include <unistd.h>
-#if defined(__linux__)
+#if TOOLBELT_TRIGGERFD_SIGNAL_MECHANISM == TOOLBELT_TRIGGERFD_EVENTFD && \
+    defined(__linux__)
+#define TOOLBELT_TRIGGERFD_USE_EVENTFD 1
 #include <sys/eventfd.h>
-#elif defined(__QNX__) || defined(__QNXNTO__)
+#elif TOOLBELT_TRIGGERFD_SIGNAL_MECHANISM == TOOLBELT_TRIGGERFD_EVENTFD
+#define TOOLBELT_TRIGGERFD_USE_EVENTFD 0
+#error TOOLBELT_TRIGGERFD_EVENTFD is only available on Linux
+#elif TOOLBELT_TRIGGERFD_SIGNAL_MECHANISM == TOOLBELT_TRIGGERFD_SOCKETPAIR
+#define TOOLBELT_TRIGGERFD_USE_EVENTFD 0
 #include <sys/socket.h>
 #include <sys/types.h>
+#elif TOOLBELT_TRIGGERFD_SIGNAL_MECHANISM == TOOLBELT_TRIGGERFD_PIPE
+#define TOOLBELT_TRIGGERFD_USE_EVENTFD 0
+// pipe() is declared in unistd.h.
 #else
-#include <fcntl.h>
+#define TOOLBELT_TRIGGERFD_USE_EVENTFD 0
+#error TOOLBELT_TRIGGERFD_SIGNAL_MECHANISM must be TOOLBELT_TRIGGERFD_EVENTFD, TOOLBELT_TRIGGERFD_PIPE, or TOOLBELT_TRIGGERFD_SOCKETPAIR
 #endif
 
 namespace toolbelt {
+
+#if !TOOLBELT_TRIGGERFD_USE_EVENTFD
+// Opens a nonblocking pipe or socketpair. Both ends are owned by the
+// FileDescriptors before either is set nonblocking, so a failure cannot leak
+// a descriptor.
+static absl::Status OpenByteStream(FileDescriptor &poll_fd,
+                                   FileDescriptor &trigger_fd) {
+  int fds[2];
+#if TOOLBELT_TRIGGERFD_SIGNAL_MECHANISM == TOOLBELT_TRIGGERFD_SOCKETPAIR
+  if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Unable to create trigger fd socketpair: %s", strerror(errno)));
+  }
+#else
+  if (pipe(fds) == -1) {
+    return absl::InternalError(absl::StrFormat(
+        "Unable to create trigger fd pipe: %s", strerror(errno)));
+  }
+#endif
+  poll_fd.SetFd(fds[0]);
+  trigger_fd.SetFd(fds[1]);
+  if (absl::Status status = poll_fd.SetNonBlocking(); !status.ok()) {
+    poll_fd.Close();
+    trigger_fd.Close();
+    return status;
+  }
+  if (absl::Status status = trigger_fd.SetNonBlocking(); !status.ok()) {
+    poll_fd.Close();
+    trigger_fd.Close();
+    return status;
+  }
+  return absl::OkStatus();
+}
+#endif
 
 absl::StatusOr<TriggerFd> TriggerFd::Create() {
   TriggerFd t;
@@ -39,7 +79,7 @@ absl::StatusOr<TriggerFd> TriggerFd::Create(const FileDescriptor &poll_fd,
 }
 
 absl::Status TriggerFd::Open() {
-#if defined(__linux__)
+#if TOOLBELT_TRIGGERFD_USE_EVENTFD
   int fd = eventfd(0, EFD_NONBLOCK);
   if (fd == -1) {
     return absl::InternalError(absl::StrFormat(
@@ -47,64 +87,37 @@ absl::Status TriggerFd::Open() {
   }
   poll_fd_.SetFd(fd);
   trigger_fd_ = poll_fd_;
-#elif defined(__QNX__) || defined(__QNXNTO__)
-  int fds[2];
-  if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == -1) {
-    return absl::InternalError(absl::StrFormat(
-        "Unable to create trigger fd socketpair: %s", strerror(errno)));
-  }
-  // Owned immediately so both ends are closed if setting nonblocking fails.
-  poll_fd_.SetFd(fds[0]);
-  trigger_fd_.SetFd(fds[1]);
-  if (absl::Status status = poll_fd_.SetNonBlocking(); !status.ok()) {
-    return status;
-  }
-  if (absl::Status status = trigger_fd_.SetNonBlocking(); !status.ok()) {
-    return status;
-  }
 #else
-  int pipes[2];
-  if (pipe(pipes) == -1) {
-    return absl::InternalError(absl::StrFormat(
-        "Unable to create trigger fd pipe: %s", strerror(errno)));
+  if (absl::Status status = OpenByteStream(poll_fd_, trigger_fd_);
+      !status.ok()) {
+    return status;
   }
-  // Both ends of the pipe are nonblocking.
-  if (fcntl(pipes[0], F_SETFL, (fcntl(pipes[0], F_GETFL) | O_NONBLOCK)) == -1) {
-    return absl::InternalError(absl::StrFormat(
-        "Unable to set non-blocking on read pipe: %s", strerror(errno)));
-  }
-  if (fcntl(pipes[1], F_SETFL, (fcntl(pipes[1], F_GETFL) | O_NONBLOCK)) == -1) {
-    return absl::InternalError(absl::StrFormat(
-        "Unable to set non-blocking on write pipe: %s", strerror(errno)));
-  }
-  poll_fd_.SetFd(pipes[0]);    // Read end
-  trigger_fd_.SetFd(pipes[1]); // Write end.
 #endif
   return absl::OkStatus();
 }
 
 void TriggerFd::Trigger() {
-#if defined(__linux__)
+#if TOOLBELT_TRIGGERFD_USE_EVENTFD
   // Linux eventfd.  Write an 8 byte value to trigger it.
   int64_t val = 1;
   (void)::write(trigger_fd_.Fd(), &val, 8);
 #else
-  // Pipe, or a socketpair on QNX.  Write a single byte to it.
+  // Pipe or socketpair.  Write a single byte to it.
   char val = 'x';
   (void)::write(trigger_fd_.Fd(), &val, 1);
 #endif
 }
 
 bool TriggerFd::Clear() {
-#if defined(__linux__)
+#if TOOLBELT_TRIGGERFD_USE_EVENTFD
   // Linux eventfd, read a single 8 byte value.  This will clear the
   // eventfd.
   int64_t val;
   ssize_t n = ::read(poll_fd_.Fd(), &val, 8);
   return (n > 0);
 #else
-  // Pipe, or a socketpair on QNX.  Read all pending bytes.  The fd is
-  // nonblocking, so we get EAGAIN once it has been drained.
+  // Pipe or socketpair.  Read all pending bytes.  The fd is nonblocking, so
+  // we get EAGAIN once it has been drained.
   bool was_triggered = false;
   for (;;) {
     char buffer[256];
@@ -119,3 +132,5 @@ bool TriggerFd::Clear() {
 }
 
 } // namespace toolbelt
+
+#undef TOOLBELT_TRIGGERFD_USE_EVENTFD
