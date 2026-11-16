@@ -9,11 +9,36 @@
 #include "absl/status/statusor.h"
 #include "toolbelt/fd.h"
 
+// How a TriggerFd is signaled.
+//
+//   TOOLBELT_TRIGGERFD_EVENTFD      Linux eventfd. Linux only.
+//   TOOLBELT_TRIGGERFD_PIPE         Anonymous pipe.
+//   TOOLBELT_TRIGGERFD_SOCKETPAIR   Unix-domain socketpair.
+//
+// The default is eventfd on Linux, a socketpair on QNX, and a pipe everywhere
+// else. QNX pipes go through a single-threaded pipe service. A socketpair is
+// slower than a pipe on macOS, and its read end always reports POLLOUT.
+//
+// Override the default from the build, for example:
+//   -DTOOLBELT_TRIGGERFD_SIGNAL_MECHANISM=TOOLBELT_TRIGGERFD_SOCKETPAIR
+#define TOOLBELT_TRIGGERFD_EVENTFD 1
+#define TOOLBELT_TRIGGERFD_PIPE 2
+#define TOOLBELT_TRIGGERFD_SOCKETPAIR 3
+
+#ifndef TOOLBELT_TRIGGERFD_SIGNAL_MECHANISM
+#if defined(__linux__)
+#define TOOLBELT_TRIGGERFD_SIGNAL_MECHANISM TOOLBELT_TRIGGERFD_EVENTFD
+#elif defined(__QNX__) || defined(__QNXNTO__)
+#define TOOLBELT_TRIGGERFD_SIGNAL_MECHANISM TOOLBELT_TRIGGERFD_SOCKETPAIR
+#else
+#define TOOLBELT_TRIGGERFD_SIGNAL_MECHANISM TOOLBELT_TRIGGERFD_PIPE
+#endif
+#endif
+
 namespace toolbelt {
 
-// A TriggerFd is a file descriptor that can be used to trigger
-// an event.  If the facility is available, it is implemented
-// as an eventfd, otherwise it's a pipe.
+// A TriggerFd is a file descriptor that can be used to trigger an event.
+// The signaling mechanism is TOOLBELT_TRIGGERFD_SIGNAL_MECHANISM.
 class TriggerFd {
  public:
   TriggerFd() = default;

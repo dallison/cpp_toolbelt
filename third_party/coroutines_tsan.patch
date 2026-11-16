@@ -1,0 +1,70 @@
+diff --git a/co/detect_sanitizers.h b/co/detect_sanitizers.h
+--- a/co/detect_sanitizers.h
++++ b/co/detect_sanitizers.h
+@@ -54,7 +54,19 @@
+ 
+ #ifdef CO_THREAD_SANITIZER
+ #ifndef CO_DISABLE_THREAD_SANITIZER
++#if defined(__has_attribute)
++#if __has_attribute(disable_sanitizer_instrumentation)
++// Clang's no_sanitize("thread") still emits TSan function entry/exit hooks.
++// Those hooks cannot span a stack switch, so suppress all sanitizer
++// instrumentation in functions that perform one.
++#define CO_DISABLE_THREAD_SANITIZER                                           \
++  __attribute__((disable_sanitizer_instrumentation))
++#else
+ #define CO_DISABLE_THREAD_SANITIZER __attribute__((no_sanitize("thread")))
++#endif
++#else
++#define CO_DISABLE_THREAD_SANITIZER __attribute__((no_sanitize("thread")))
++#endif
+ #endif // CO_DISABLE_THREAD_SANITIZER
+ #else
+ #define CO_DISABLE_THREAD_SANITIZER
+diff --git a/co/coroutine.cc b/co/coroutine.cc
+--- a/co/coroutine.cc
++++ b/co/coroutine.cc
+@@ -509,6 +509,7 @@
+   state_ = state;
+ }
+ 
++CO_DISABLE_THREAD_SANITIZER
+ void Coroutine::Exit() const {
+   // Tell TSan we are leaving the coroutine fiber and returning to the
+   // scheduler before we actually switch stacks.
+@@ -897,6 +898,7 @@
+   }
+ }
+ 
++CO_DISABLE_THREAD_SANITIZER
+ void Coroutine::InvokeFunction() {
+   try {
+     function_(*this);
+@@ -907,15 +909,10 @@
+   __sanitizer_finish_switch_fiber(nullptr, nullptr, nullptr);
+ #endif
+   // The coroutine body has returned; the assembly trampoline (or the
+-  // ucontext uc_link/getcontext+setcontext path) is about to longjmp/setcontext
+-  // back to the scheduler.  Tell TSan we are switching fibers before that
+-  // happens.  We use the no-sync flag because there is nothing the scheduler
+-  // can synchronize with on a dying coroutine.
+-#if defined(CO_THREAD_SANITIZER)
+-  if (scheduler_.tsan_fiber_ != nullptr) {
+-    __tsan_switch_to_fiber(scheduler_.tsan_fiber_, 0);
+-  }
+-#endif
++  // ucontext uc_link/getcontext+setcontext path) is about to switch back to
++  // the scheduler.  This function and __co_Invoke must not have TSan
++  // entry/exit hooks because they return after changing fibers.
++  CO_TSAN_SWITCH_TO_FIBER(scheduler_.tsan_fiber_);
+ }
+ 
+ // We use an intermediate function to do the invocation of
+@@ -924,6 +921,7 @@
+ // the Resume function.  A new compiler might change the
+ // name mangling rules and that would break the build.
+ extern "C" {
++CO_DISABLE_THREAD_SANITIZER
+ void __co_Invoke(Coroutine *c) { c->InvokeFunction(); }
+ }
+ 
