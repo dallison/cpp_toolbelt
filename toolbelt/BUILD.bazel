@@ -80,6 +80,29 @@ cc_library(
     ],
 )
 
+# Header-only C++20 awaitable wrappers around FileDescriptor / Pipe / Socket
+# I/O.  Kept separate from :toolbelt so the core library stays C++17 and so
+# @coroutines//co:co_cpp20 (which depends on :toolbelt) does not form a cycle.
+cc_library(
+    name = "toolbelt_co20",
+    hdrs = [
+        "co20.h",
+        "fd_co20.h",
+        "pipe_co20.h",
+        "sockets_co20.h",
+    ],
+    copts = [
+        "-std=c++20",
+    ],
+    deps = [
+        ":toolbelt",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:str_format",
+        "@coroutines//co:co_cpp20",
+    ],
+)
+
 cc_test(
     name = "fd_test",
     size = "small",
@@ -169,5 +192,23 @@ cc_test(
     deps = [
         ":toolbelt",
         "@googletest//:gtest",
+    ],
+)
+
+cc_test(
+    name = "co20_test",
+    size = "small",
+    srcs = ["co20_test.cc"],
+    copts = [
+        "-std=c++20",
+    ],
+    tags = ["cpp20"],
+    deps = [
+        ":toolbelt_co20",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:status_matchers",
+        "@abseil-cpp//absl/status:statusor",
+        "@coroutines//co:co_cpp20",
+        "@googletest//:gtest_main",
     ],
 )
