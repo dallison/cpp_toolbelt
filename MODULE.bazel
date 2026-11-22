@@ -1,13 +1,13 @@
 module(
     name = "cpp_toolbelt",
-    version = "2.1.7",
+    version = "2.2.0",
 )
 
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "bazel_skylib", version = "1.9.0")
 bazel_dep(name = "abseil-cpp", version = "20250814.1")
 bazel_dep(name = "googletest", version = "1.17.0.bcr.2")
-bazel_dep(name = "coroutines", version = "3.4.1")
+bazel_dep(name = "coroutines", version = "3.5.0")
 bazel_dep(name = "rules_cc", version = "0.2.17")
 
 # For local debugging of co coroutine library.
@@ -17,12 +17,6 @@ bazel_dep(name = "rules_cc", version = "0.2.17")
 # )
 git_override(
     module_name = "coroutines",
-    commit = "f4bcdffa67315d9aefaed6a802731263c0e0c19b",
+    commit = "c9734b087b231a932ff21def81ad78540a43eff8",  # 3.5.0
     remote = "https://github.com/dallison/co.git",
-    # GCC 15 still emits TSan function entry/exit hooks around a stack switch,
-    # which corrupts the shadow stack (Ubuntu 26.04 CI). This is the fix from
-    # dallison/co c2cbd0f, applied onto the pinned 3.4.1 commit.
-    patches = ["//third_party:coroutines_tsan.patch"],
-    patch_strip = 1,
 )
-

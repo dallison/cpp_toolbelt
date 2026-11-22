@@ -137,6 +137,8 @@ if (result.ok()) {
 
 The socket classes provide a high-level interface to various socket types. They are coroutine-aware and work with the [co coroutine library](https://github.com/dallison/co).
 
+Pass a `co::Coroutine*` (as `toolbelt::AsyncWaiter*`) to `Receive` / `Send` / `Accept` / etc. for stackful C++17 coroutines. For C++20 stackless coroutines (`co20::`), use the awaitable helpers in `toolbelt/co20.h` instead — see [C++20 coroutines](#c20-coroutines) below.
+
 **Header:** `toolbelt/sockets.h`
 
 #### InetAddress
@@ -1038,10 +1040,35 @@ void some_function() {
 }
 ```
 
+### C++20 coroutines
+
+A C++20 stackless `co20::Coroutine` can only suspend at `co_await`. Calling the
+`AsyncWaiter`-based APIs through a `co20::Coroutine*` therefore blocks the
+scheduler thread instead of suspending. Use the header-only helpers in
+`toolbelt/co20.h` (Bazel target `//toolbelt:toolbelt_co20`):
+
+```cpp
+#include "toolbelt/co20.h"
+#include "co/coroutine_cpp20.h"
+
+co20::Scheduler sched;
+sched.Spawn([&]() -> co20::Task {
+  auto n = co_await toolbelt::await::Receive(socket, buffer, sizeof(buffer));
+  // ...
+  co_return;
+});
+sched.Run();
+```
+
+Available as `toolbelt::await::*`: `Read` / `Write` (file descriptors and pipes),
+`Receive` / `Send` / `ReceiveMessage` / `SendMessage` / `Accept` (sockets),
+`SendTo` / `ReceiveFrom` (UDP), `SendFds` / `ReceiveFds` (Unix), and
+`SharedPtrPipe` `Read` / `Write`.
+
 ## Dependencies
 
 - [Abseil](https://github.com/abseil/abseil-cpp) - Status types, strings, formatting
-- [co](https://github.com/dallison/co) - Coroutine library (for socket classes)
+- [co](https://github.com/dallison/co) - Coroutine library (C++17 `co::` and C++20 `co20::`)
 
 ## License
 

@@ -14,6 +14,10 @@
 
 namespace toolbelt {
 
+// Friend accessor used by the C++20 awaitable helpers in pipe_co20.h so they
+// can manage the read/write-in-progress flags without making them public.
+struct PipeCo20Access;
+
 class Pipe {
 public:
   static absl::StatusOr<Pipe> Create();
@@ -29,6 +33,8 @@ public:
   Pipe(Pipe &&) = default;
   Pipe &operator=(const Pipe &) = default;
   Pipe &operator=(Pipe &&) = default;
+
+  friend struct PipeCo20Access;
 
   absl::Status Open(int flags = 0);
 

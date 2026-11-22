@@ -39,8 +39,13 @@ struct WaitFd {
   uint32_t events;
 };
 
-// This is a AsyncWaiter. It's an abstract interface to a poll/wait/yield 
+// This is a AsyncWaiter. It's an abstract interface to a poll/wait/yield
 // mechanism, such as a vanilla POSIX implementation or coroutines.
+//
+// Stackful co::Coroutine implements this and can suspend inside Wait/Yield.
+// Stackless C++20 coroutines can only suspend at co_await, so do not pass a
+// co20::Coroutine through these virtuals expecting a yield — use
+// toolbelt/co20.h (toolbelt::await::*) with co_await instead.
 class AsyncWaiter {
 public:
   AsyncWaiter() = default;
